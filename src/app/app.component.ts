@@ -25,6 +25,9 @@ import { MidiService } from './services/midi.service';
               <i class="fas" [class.fa-sliders-h]="audioService.viewMode() === 'cards'" [class.fa-th-large]="audioService.viewMode() === 'mixer'"></i>
               {{ audioService.viewMode() === 'mixer' ? 'VER CARDS' : 'ABRIR MIXER' }}
             </button>
+            <button class="master-toggle-header" [class.off]="!masterVisible()" (click)="masterVisible.set(!masterVisible())">
+               <i class="fas fa-sliders-h"></i> MASTER {{ masterVisible() ? 'ON' : 'OFF' }}
+            </button>
             <div class="stat-item" [class.high-load]="audioService.activeVoices() > 80">
                 <i class="fas fa-microchip"></i> 
                 <span>Vozes: {{ audioService.activeVoices() }}</span>
@@ -47,86 +50,81 @@ import { MidiService } from './services/midi.service';
         </div>
       </header>
 
-      <main class="content" [class.sidebar-hidden]="!sidebarVisible()">
-        <!-- Sidebar: Global & Master Effects -->
-        <aside class="sidebar" [class.collapsed]="!sidebarVisible()">
-          <button class="sidebar-toggle-btn" (click)="sidebarVisible.set(!sidebarVisible())">
-             <i class="fas" [class.fa-chevron-left]="sidebarVisible()" [class.fa-chevron-right]="!sidebarVisible()"></i>
-             {{ sidebarVisible() ? 'OCULTAR MASTER' : 'MOSTRAR MASTER' }}
-          </button>
+      <div class="master-strip glass" [class.minimized]="masterMinimized()" *ngIf="masterVisible()">
+        <div class="master-header">
+           <i class="fas fa-sliders-h"></i> MASTER
+           <button class="minimize-btn" (click)="masterMinimized.set(!masterMinimized())">
+              <i class="fas" [class.fa-chevron-up]="!masterMinimized()" [class.fa-chevron-down]="masterMinimized()"></i>
+           </button>
+        </div>
+        
+        <div class="master-content-wrapper" *ngIf="!masterMinimized()">
+          <div class="master-controls">
+             <div class="m-knob">
+                <label>VOLUME</label>
+                <div class="m-input">
+                  <input type="range" min="0" max="2" step="0.1" value="1" (input)="onMasterParam('masterGain', $event)">
+                  <button class="mini-learn" [class.active]="isLearning('master', 'masterGain')" (click)="startLearning('master', 'masterGain')">
+                    <i class="fas fa-bolt"></i>
+                  </button>
+                </div>
+             </div>
+             
+             <div class="m-knob">
+                <label>REVERB LVL</label>
+                <div class="m-input">
+                  <input type="range" min="0" max="10" step="0.1" value="0.5" (input)="onMasterParam('reverbGain', $event)">
+                  <button class="mini-learn" [class.active]="isLearning('master', 'reverbGain')" (click)="startLearning('master', 'reverbGain')">
+                    <i class="fas fa-bolt"></i>
+                  </button>
+                </div>
+             </div>
 
-          <section class="master-panel glass">
-            <div class="panel-header">
-              <h3><i class="fas fa-sliders-h"></i> Master</h3>
-            </div>
-            
-            <div class="knob-grid">
-               <div class="knob-item">
-                  <div class="knob-header">
-                    <label>Volume</label>
-                    <button class="mini-learn" [class.active]="isLearning('master', 'masterGain')" (click)="startLearning('master', 'masterGain')">
-                      <i class="fas fa-bolt"></i>
-                    </button>
-                  </div>
-                  <input type="range" class="vertical-range" min="0" max="2" step="0.1" value="1" (input)="onMasterParam('masterGain', $event)">
-               </div>
-               <div class="knob-item">
-                  <div class="knob-header">
-                    <label>Reverb Lvl</label>
-                    <button class="mini-learn" [class.active]="isLearning('master', 'reverbGain')" (click)="startLearning('master', 'reverbGain')">
-                      <i class="fas fa-bolt"></i>
-                    </button>
-                  </div>
-                  <input type="range" class="vertical-range" min="0" max="10" step="0.1" value="0.5" (input)="onMasterParam('reverbGain', $event)">
-               </div>
-               <div class="knob-item">
-                  <div class="knob-header">
-                    <label>Reverb Time</label>
-                    <button class="mini-learn" [class.active]="isLearning('master', 'reverbTime')" (click)="startLearning('master', 'reverbTime')">
-                      <i class="fas fa-bolt"></i>
-                    </button>
-                  </div>
-                  <input type="range" class="vertical-range" min="0" max="127" step="1" value="64" (input)="onReverbTimeChange($event)">
-               </div>
-               <div class="knob-item">
-                  <div class="knob-header">
-                    <label>Eco/Delay</label>
-                    <button class="mini-learn" [class.active]="isLearning('master', 'delayGain')" (click)="startLearning('master', 'delayGain')">
-                      <i class="fas fa-bolt"></i>
-                    </button>
-                  </div>
-                  <input type="range" class="vertical-range" min="0" max="5" step="0.1" value="0.5" (input)="onDelayChange($event)">
-               </div>
-            </div>
+             <div class="m-knob">
+                <label>REV TIME</label>
+                <div class="m-input">
+                  <input type="range" min="0" max="127" step="1" value="64" (input)="onReverbTimeChange($event)">
+                  <button class="mini-learn" [class.active]="isLearning('master', 'reverbTime')" (click)="startLearning('master', 'reverbTime')">
+                    <i class="fas fa-bolt"></i>
+                  </button>
+                </div>
+             </div>
 
-            <div class="sustain-section">
-               <button class="btn-sustain" [class.on]="sustain()" (click)="toggleSustain(!sustain())">
-                  <i class="fas fa-lock"></i> SUSTAIN {{ sustain() ? 'ON' : 'OFF' }}
-               </button>
-            </div>
+             <div class="m-knob">
+                <label>DELAY</label>
+                <div class="m-input">
+                  <input type="range" min="0" max="5" step="0.1" value="0.5" (input)="onDelayChange($event)">
+                  <button class="mini-learn" [class.active]="isLearning('master', 'delayGain')" (click)="startLearning('master', 'delayGain')">
+                    <i class="fas fa-bolt"></i>
+                  </button>
+                </div>
+             </div>
+          </div>
 
-            <div class="file-section">
-               <button class="btn-upload" (click)="fileInput.click()">
-                 <i class="fas fa-file-audio"></i> 
-                 {{ audioService.currentSoundFont() ? 'Trocar SF2' : 'Carregar SF2' }}
-               </button>
-               <input #fileInput type="file" (change)="onFileSelected($event)" accept=".sf2" hidden>
-            </div>
-          </section>
+          <div class="master-actions">
+             <button class="btn-sustain-mini" [class.on]="sustain()" (click)="toggleSustain(!sustain())">
+                <i class="fas fa-lock"></i> SUSTAIN {{ sustain() ? 'ON' : 'OFF' }}
+             </button>
+             <button class="btn-upload-mini" (click)="fileInput.click()">
+               <i class="fas fa-file-audio"></i> SF2
+             </button>
+             <input #fileInput type="file" (change)="onFileSelected($event)" accept=".sf2" hidden>
+          </div>
 
-          <section class="midi-monitor glass">
-              <div class="panel-header">
-                <h3><i class="fas fa-terminal"></i> MIDI Monitor</h3>
-              </div>
-              <div class="log-mini">
+          <div class="master-midi">
+             <div class="midi-led" [class.active]="midiService.messages()"></div>
+             <div class="midi-msg">
                 @if (midiService.messages(); as msg) {
-                  <div class="msg">Note: {{ msg.note }} | Vel: {{ msg.velocity }}</div>
+                  <span>N: {{ msg.note }} V: {{ msg.velocity }}</span>
                 } @else {
-                  <div class="muted">Waiting...</div>
+                  <span class="muted">MIDI IDLE</span>
                 }
-              </div>
-          </section>
-        </aside>
+             </div>
+          </div>
+        </div>
+      </div>
+
+      <main class="content">
 
         <!-- Main Area: Layers or Mixer -->
         <section class="layers-area">
@@ -145,18 +143,17 @@ import { MidiService } from './services/midi.service';
           @if (audioService.viewMode() === 'mixer') {
             <div class="mixer-board glass">
                @for (layer of audioService.layers(); track layer.id) {
-                 <div class="mixer-channel" [class.muted]="!layer.enabled">
-                    <div class="level-meter">
-                       <div class="meter-bar" [style.height.%]="layer.enabled ? 40 + (layer.volume * 30) : 0"></div>
-                    </div>
+                 <div class="mixer-channel" [class.muted-state]="!layer.enabled">
                     <div class="slider-wrapper">
-                       <input type="range" class="mixer-slider" [value]="layer.volume" min="0" max="2" step="0.01" (input)="onLayerVol(layer, $event)">
+                       <input type="range" class="mixer-slider" [value]="layer.volume" min="0" max="2" step="0.01" (input)="onLayerVol(layer, $event)" orient="vertical">
                     </div>
-                    <button class="mute-btn" (click)="audioService.updateLayer(layer.id, {enabled: !layer.enabled})">
-                       {{ layer.enabled ? 'ON' : 'MUTE' }}
+                    <button class="mixer-toggle" [class.active]="layer.enabled" (click)="audioService.updateLayer(layer.id, {enabled: !layer.enabled})">
+                       {{ layer.enabled ? 'ON' : 'OFF' }}
                     </button>
-                    <div class="channel-label">{{ layer.name }}</div>
-                    <div class="ch-id">CH {{ layer.channel + 1 }}</div>
+                    <div class="channel-info">
+                       <div class="channel-label">{{ layer.name }}</div>
+                       <div class="ch-id">CHANNEL {{ layer.channel + 1 }}</div>
+                    </div>
                  </div>
                }
             </div>
@@ -355,21 +352,30 @@ import { MidiService } from './services/midi.service';
     .header-stats {
       display: flex;
       align-items: center;
-      gap: 20px;
+      gap: 15px;
     }
 
-    .stat-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 11px;
-      color: #666;
-      font-family: monospace;
-    }
+    @media (max-width: 900px) {
+      .header {
+        flex-direction: column;
+        padding: 10px;
+        height: auto;
+        gap: 10px;
+      }
+      
+      .logo h1 { font-size: 18px; }
+      
+      .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+      }
 
-    .stat-item.high-load {
-      color: #ff3e3e;
-      text-shadow: 0 0 10px rgba(255, 62, 62, 0.4);
+      .header-stats {
+        width: 100%;
+        justify-content: center;
+      }
     }
 
     .performance-toggle, .view-toggle {
@@ -394,269 +400,223 @@ import { MidiService } from './services/midi.service';
       box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
     }
 
-    /* Layout Base */
-    .content {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      flex-grow: 1;
-      height: 0;
+    .master-strip {
+      padding: 0 30px;
+      display: flex;
+      align-items: center;
+      gap: 30px;
+      border-bottom: 1px solid var(--border);
+      z-index: 90;
+      background: rgba(10, 10, 25, 0.9);
+      height: 50px;
       transition: all 0.3s ease;
+      overflow: hidden;
     }
 
-    .sidebar {
-      padding: 20px;
+    .master-strip.minimized {
+      height: 30px;
+      background: rgba(10, 10, 25, 1);
+    }
+
+    .master-content-wrapper {
       display: flex;
-      flex-direction: column;
-      gap: 20px;
-      border-right: 1px solid var(--border);
-      overflow-y: auto;
-      background: rgba(5, 5, 20, 0.4);
-    }
-
-    /* Mobile Adaptations */
-    @media (max-width: 992px) {
-      .content {
-        grid-template-columns: 1fr;
-        height: auto;
-        overflow-y: auto;
-      }
-
-      .content.sidebar-hidden {
-        grid-template-rows: auto 1fr;
-      }
-
-      .sidebar {
-        border-right: none;
-        border-bottom: 1px solid var(--border);
-        height: auto;
-        max-height: 400px;
-        transition: max-height 0.3s ease;
-      }
-
-      .sidebar.collapsed {
-        max-height: 50px;
-        padding: 5px 20px;
-        overflow: hidden;
-      }
-
-      .sidebar-toggle-btn {
-        display: flex;
-        width: 100%;
-        background: rgba(255,255,255,0.03);
-        border: 1px solid #333;
-        color: #888;
-        padding: 8px;
-        border-radius: 6px;
-        justify-content: center;
-        align-items: center;
-        gap: 10px;
-        font-size: 10px;
-        letter-spacing: 1px;
-        cursor: pointer;
-      }
-
-      .header {
-        padding: 5px 10px;
-        gap: 8px;
-      }
-
-      .header-actions {
-        gap: 5px;
-      }
-
-      .logo h1 { font-size: 16px; margin-bottom: 5px; }
-      
-      .btn-save { padding: 5px 10px; font-size: 11px; }
-      .view-toggle, .performance-toggle { padding: 4px 8px; font-size: 8px; }
-    }
-
-    /* Landscape Mode */
-    @media (max-height: 500px) and (orientation: landscape) {
-       .header { display: none; } /* Hide header on small landscape to save space */
-       .piano-footer { height: 70px; }
-       .sidebar { max-height: 100vh; width: 200px; grid-row: 1 / span 2; position: fixed; left: 0; z-index: 1000; }
-       .sidebar.collapsed { width: 40px; }
-       .content { margin-left: 40px; }
-       .content:not(.sidebar-hidden) { margin-left: 200px; }
-       .mixer-board { padding: 5px; gap: 5px; }
-       .mixer-slider { height: 100px; }
-    }
-
-    /* Piano Footer Mobile */
-    .piano-footer {
-      height: 120px;
-      background: #000;
-      overflow-x: auto;
-      overflow-y: hidden;
-      display: flex;
-      align-items: flex-end;
-      border-top: 2px solid var(--primary);
-      box-shadow: 0 -5px 25px rgba(0, 242, 255, 0.1);
-    }
-
-    .piano-container {
-      display: flex;
-      height: 100%;
-      min-width: 1200px; /* Force scrollable on mobile */
-      position: relative;
-    }
-
-    .key {
-      flex: 1;
-      border: 1px solid #ddd;
-      background: white;
-      min-width: 30px;
-      height: 100%;
-      border-radius: 0 0 4px 4px;
-      position: relative;
-      cursor: pointer;
-      transition: background 0.1s;
-    }
-
-    .key.black {
-      background: #111;
-      height: 60%;
-      z-index: 2;
-      margin-left: -15px;
-      margin-right: -15px;
-      min-width: 20px;
-      border-color: #333;
-    }
-
-    .key.active {
-      background: var(--primary) !important;
-      box-shadow: 0 0 20px var(--primary);
-    }
-
-    /* Custom Select & Inputs mobile */
-    .input-with-learn {
+      align-items: center;
+      gap: 30px;
       flex-grow: 1;
-      display: flex;
-      align-items: center;
-      gap: 10px;
     }
 
-    @media (max-width: 480px) {
-       .layers-grid {
-         grid-template-columns: 1fr;
-         padding: 10px;
-       }
-       
-       .layer-card {
-         padding: 15px;
-       }
-
-       .header-stats {
-         display: grid;
-         grid-template-columns: 1fr 1fr;
-         width: 100%;
-         gap: 5px;
-       }
-
-       .performance-toggle {
-         width: 100%;
-         justify-content: center;
-       }
-    }
-
-    .panel-header h3 {
-      margin: 0;
-      font-size: 12px;
-      text-transform: uppercase;
+    .master-header {
+      font-size: 11px;
+      font-weight: 900;
       letter-spacing: 2px;
-      color: #888;
-    }
-
-    /* Knobs / Scrollers */
-    .knob-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      margin: 20px 0;
-    }
-
-    .knob-item {
+      color: var(--primary);
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 15px;
+      border-right: 1px solid var(--border);
+      padding-right: 20px;
+      height: 100%;
     }
 
-    .knob-item label {
-      font-size: 10px;
-      color: #666;
+    .minimize-btn {
+      background: transparent;
+      border: none;
+      color: #555;
+      cursor: pointer;
+      padding: 5px;
+      font-size: 14px;
+      transition: 0.3s;
     }
 
-    .knob-header {
+    .minimize-btn:hover { color: var(--primary); }
+
+    .master-toggle-header {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 9px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
-    .mini-learn {
-      background: transparent;
-      border: none;
-      color: #444;
-      font-size: 10px;
+    .master-toggle-header.off {
+      border-color: #666;
+      color: #666;
+    }
+    
+    .master-toggle-header:hover:not(.off) {
+      box-shadow: 0 0 15px var(--primary);
+    }
+
+    .master-controls {
+      display: flex;
+      gap: 25px;
+      align-items: center;
+      flex-grow: 1;
+    }
+
+    .m-knob {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 100px;
+    }
+
+    .m-knob label {
+      font-size: 8px;
+      font-weight: bold;
+      color: #666;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 768px) {
+      .master-strip {
+        padding: 10px;
+        gap: 15px;
+        height: auto;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .master-header {
+        display: none;
+      }
+
+      .master-controls {
+        flex-direction: column;
+        gap: 15px;
+        width: 100%;
+      }
+
+      .m-knob {
+        width: 100%;
+      }
+
+      .master-actions {
+        padding-left: 0;
+        border-left: none;
+        justify-content: space-around;
+        padding: 10px 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .master-midi {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+
+    .m-input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .m-input input[type="range"] {
+      flex-grow: 1;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      accent-color: var(--primary);
       cursor: pointer;
-      padding: 0;
     }
 
-    .mini-learn.active { color: var(--primary); animation: pulse-midi 1s infinite; }
-
-    .vertical-range {
-      appearance: none;
-      width: 60px;
-      height: 60px;
-      background: var(--panel-bg);
-      border-radius: 50%;
-      border: 4px solid var(--border);
-      transform: rotate(-90deg);
-      cursor: pointer;
+    .master-actions {
+      display: flex;
+      gap: 10px;
+      border-left: 1px solid var(--border);
+      padding-left: 20px;
     }
 
-    .vertical-range::-webkit-slider-thumb {
-      appearance: none;
-      width: 15px;
-      height: 15px;
-      background: var(--primary);
-      border-radius: 50%;
-      box-shadow: 0 0 10px var(--primary);
-    }
-
-    .btn-sustain {
-      width: 100%;
-      padding: 12px;
-      background: rgba(0,0,0,0.4);
+    .btn-sustain-mini {
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--border);
       color: #777;
-      border-radius: 8px;
-      font-weight: 800;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: bold;
       cursor: pointer;
+      transition: all 0.3s;
     }
 
-    .btn-sustain.on {
+    .btn-sustain-mini.on {
       background: var(--accent);
       color: white;
-      box-shadow: 0 0 20px var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
     }
 
-    .btn-upload {
-      width: 100%;
-      padding: 10px;
-      background: rgba(255,255,255,0.05);
-      border: 1px dashed #444;
-      color: #aaa;
-      border-radius: 6px;
+    .btn-upload-mini {
+      background: var(--secondary);
+      border: none;
+      color: white;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: bold;
       cursor: pointer;
     }
 
-    .log-mini {
-      font-family: monospace;
-      font-size: 10px;
-      padding: 10px;
+    .master-midi {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       background: rgba(0,0,0,0.3);
-      border-radius: 4px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .midi-led {
+      width: 6px;
+      height: 6px;
+      background: #333;
+      border-radius: 50%;
+    }
+
+    .midi-led.active {
+      background: var(--primary);
+      box-shadow: 0 0 8px var(--primary);
+    }
+
+    .midi-msg {
+      font-size: 9px;
+      font-family: monospace;
+      color: #888;
+    }
+
+    /* Layout Base */
+    .content {
+      display: block;
+      flex-grow: 1;
+      overflow-y: auto;
     }
 
     /* Layers Area */
@@ -871,91 +831,186 @@ import { MidiService } from './services/midi.service';
       border-color: var(--primary);
     }
 
-    /* Mixer Board */
+    /* Mixer Board Redesign */
     .mixer-board {
       display: flex;
-      gap: 15px;
-      padding: 20px;
+      gap: 20px;
+      padding: 40px;
       overflow-x: auto;
-      border-radius: 12px;
+      border-radius: 20px;
+      min-height: 500px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--border);
     }
 
+    @media (max-width: 600px) {
+      .mixer-board {
+        padding: 20px 10px;
+        min-height: 400px;
+        gap: 10px;
+      }
+      
+      .mixer-channel {
+        min-width: 80px;
+        padding: 15px 10px;
+      }
+
+      .slider-wrapper {
+        height: 200px;
+      }
+
+      .mixer-slider {
+        height: 180px;
+      }
+    }
+    
     .mixer-channel {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
-      min-width: 80px;
-      padding: 15px;
-      background: rgba(0,0,0,0.2);
-      border-radius: 8px;
+      gap: 20px;
+      min-width: 100px;
+      padding: 25px 15px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.2) 100%);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 12px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    .mixer-channel.muted { opacity: 0.5; }
+    .mixer-channel.muted-state {
+      opacity: 0.6;
+      filter: grayscale(0.5);
+    }
 
-    .level-meter {
-      height: 100px;
-      width: 10px;
-      background: #111;
+    .slider-wrapper {
       position: relative;
-      border-radius: 5px;
+      height: 280px;
+      width: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.3);
+      border-radius: 30px;
+      border: 1px solid rgba(255,255,255,0.05);
+      box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
       overflow: hidden;
     }
 
-    .meter-bar {
-      position: absolute;
-      bottom: 0;
-      width: 100%;
-      background: var(--primary);
-      transition: height 0.1s;
-    }
-
     .mixer-slider {
-      writing-mode: bt-lr;
-      appearance: slider-vertical;
-      width: 8px;
-      height: 150px;
-    }
-
-    .mute-btn {
-      background: #333;
-      border: none;
-      color: white;
-      padding: 5px 10px;
-      border-radius: 4px;
-      font-size: 10px;
+      appearance: none;
+      width: 230px; /* Horizontal width that becomes height after rotation */
+      height: 6px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 10px;
+      outline: none;
+      transform: rotate(-90deg); /* Rotate to vertical */
       cursor: pointer;
     }
 
-    .channel-label { font-size: 11px; font-weight: bold; }
-    .ch-id { font-size: 9px; color: #666; }
+    .mixer-slider::-webkit-slider-runnable-track {
+      background: linear-gradient(to right, var(--secondary), var(--primary));
+      border-radius: 10px;
+      height: 6px;
+    }
+
+    .mixer-slider::-webkit-slider-thumb {
+      appearance: none;
+      width: 40px; /* Knob height (horizontal before rotation) */
+      height: 24px; /* Knob width (vertical before rotation) */
+      background: #eee;
+      border: 2px solid #999;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: -9px; /* Align with track */
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 2px 2px white;
+      background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px);
+    }
+
+    .mixer-toggle {
+      width: 60px;
+      height: 30px;
+      border: none;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 900;
+      cursor: pointer;
+      transition: all 0.3s;
+      background: #4a0000;
+      color: #ff4d4d;
+      border: 1px solid #ff4d4d22;
+      box-shadow: 0 0 10px rgba(255, 77, 77, 0.1);
+    }
+
+    .mixer-toggle.active {
+      background: #003a20;
+      color: #39ff14;
+      border-color: #39ff1444;
+      box-shadow: 0 0 15px rgba(57, 255, 20, 0.2);
+    }
+
+    .channel-info {
+       text-align: center;
+       display: flex;
+       flex-direction: column;
+       gap: 5px;
+    }
+
+    .channel-label { 
+      font-size: 12px; 
+      font-weight: 800; 
+      color: #fff;
+      max-width: 90px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ch-id { 
+      font-size: 9px; 
+      color: var(--primary); 
+      letter-spacing: 1px;
+      font-weight: 900;
+      opacity: 0.7;
+    }
 
     /* Piano */
     .piano-footer {
-      height: 120px;
+      height: 140px;
       background: #000;
-      padding: 5px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      display: flex;
+      align-items: flex-end;
+      border-top: 2px solid var(--primary);
+      box-shadow: 0 -5px 25px rgba(0, 242, 255, 0.2);
     }
 
     .piano-container {
       display: flex;
       height: 100%;
-      gap: 1px;
+      padding-bottom: 5px;
+      min-width: max-content; /* Force container to be as wide as keys */
     }
 
     .key {
-      flex: 1;
-      background: #eee;
-      border-radius: 0 0 5px 5px;
+      flex: 0 0 45px; /* Fixed width for white keys to prevent squishing */
+      background: white;
+      height: 100%;
+      border-radius: 0 0 4px 4px;
+      position: relative;
+      cursor: pointer;
+      border: 1px solid #ccc;
       transition: background 0.1s;
     }
 
     .key.black {
-      background: #222;
-      flex: 0.7;
+      background: #111;
+      flex: 0 0 30px;
       height: 60%;
       z-index: 2;
-      margin: 0 -0.5%;
+      margin-left: -15px;
+      margin-right: -15px;
+      border-color: #333;
     }
 
     .key.active {
@@ -975,7 +1030,8 @@ export class AppComponent {
   audioService = inject(AudioService);
   midiService = inject(MidiService);
   sustain = signal(false);
-  sidebarVisible = signal(true);
+  masterMinimized = signal(false);
+  masterVisible = signal(true);
 
   notes = Array.from({length: 88}, (_, i) => i + 21); // 88 keys Piano
 

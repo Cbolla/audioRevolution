@@ -1,9 +1,12 @@
 {
-  "name": "audiorevolution",
-  "short_name": "audiorevolution",
+  "name": "AudioRevolution Enterprise",
+  "short_name": "AudioRev",
+  "theme_color": "#00f2ff",
+  "background_color": "#050510",
   "display": "standalone",
   "scope": "./",
   "start_url": "./",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "icons/icon-72x72.png",
