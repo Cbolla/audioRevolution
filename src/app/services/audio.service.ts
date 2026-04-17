@@ -1,5 +1,8 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, computed, effect } from '@angular/core';
 import { WorkletSynthesizer } from 'spessasynth_lib';
+import { Capacitor } from '@capacitor/core';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
+import AudioEngine, { AudioEnginePlugin } from '../core/plugins/audio-engine.plugin';
 
 export interface SynthLayer {
   id: string;
@@ -15,6 +18,7 @@ export interface SynthLayer {
   enabled: boolean;
   channel: number;
   soundFontName?: string;
+  icon?: string;
   midiMappings?: {
     volumeCC?: number;
     reverbCC?: number;
@@ -28,6 +32,7 @@ export interface SynthLayer {
 export class AudioService {
   private audioContext: AudioContext | null = null;
   private synthesizer: WorkletSynthesizer | null = null;
+  private isNative = Capacitor.getPlatform() === 'android';
   
   public isInitialized = signal(false);
   public currentSoundFont = signal<string | null>(null);
@@ -35,8 +40,16 @@ export class AudioService {
   public presets = signal<any[]>([]);
   public activeVoices = signal<number>(0);
   public performanceMode = signal<boolean>(false);
-  public viewMode = signal<'cards' | 'mixer'>('cards');
+  public viewMode = signal<'home' | 'mixer' | 'library' | 'effects'>('home');
+  public currentPresetName = signal('Show Domingo');
+  public midiConnected = signal(false);
   
+  // Progress & View Management
+  public isCopying = signal(false);
+  public copyProgress = signal(0);
+  public isImmersiveMode = signal(false);
+  public nativeDebugMsg = signal<string | null>(null);
+
   // Master Mappings
   public masterMidiMappings = signal<{ [key: string]: number }>({});
   
@@ -48,6 +61,7 @@ export class AudioService {
   ]);
 
   // Mapping of fileName to bank offset to prevent overlaps
+  public libraryFiles = signal<{name: string, data: ArrayBuffer, sfId?: number, path?: string}[]>([]);
   private fontOffsets = new Map<string, number>();
   private db: IDBDatabase | null = null;
 
@@ -82,6 +96,13 @@ export class AudioService {
     store.put({ name, data });
   }
 
+  private async saveNativeRefToDB(name: string, path: string) {
+    if (!this.db) return;
+    const tx = this.db.transaction('soundfonts', 'readwrite');
+    const store = tx.objectStore('soundfonts');
+    store.put({ name, path, data: new ArrayBuffer(0) });
+  }
+
   private async loadFilesFromDB() {
     if (!this.db) return;
     const tx = this.db.transaction('soundfonts', 'readonly');
@@ -89,10 +110,17 @@ export class AudioService {
     const request = store.getAll();
     request.onsuccess = async () => {
       const files = request.result;
-      for (const file of files) {
-        await this.loadSoundFont(file.data, file.name, false); // false = don't re-save
-      }
+      this.libraryFiles.set(files);
+      // No início, não carregamos automaticamente para não pesar
     };
+  }
+
+  public async deleteFileFromDB(name: string) {
+    if (!this.db) return;
+    const tx = this.db.transaction('soundfonts', 'readwrite');
+    const store = tx.objectStore('soundfonts');
+    store.delete(name);
+    this.libraryFiles.update(files => files.filter(f => f.name !== name));
   }
 
   private loadSavedProject() {
@@ -120,119 +148,136 @@ export class AudioService {
   async initialize() {
     if (this.isInitialized()) return;
 
-    // Use 'interactive' for maximum compatibility (low latency but stable)
-    this.audioContext = new AudioContext({
-      latencyHint: 'interactive'
-    });
+    if (this.isNative) {
+      try {
+        await AudioEngine.initialize();
+        this.isInitialized.set(true);
+        console.log('Native Audio Engine initialized');
+        return;
+      } catch (e) {
+        console.error('Failed to initialize native engine, falling back to Web', e);
+      }
+    }
 
+    this.audioContext = new AudioContext({ latencyHint: 'interactive' });
     try {
       await this.audioContext.audioWorklet.addModule('/spessasynth_processor.min.js');
-      
-      // Auto-resume context on any interaction 
-      if (this.audioContext.state === 'suspended') {
-        await this.audioContext.resume();
-      }
-
+      if (this.audioContext.state === 'suspended') await this.audioContext.resume();
       this.isInitialized.set(true);
-      
-      // Voice & Performance monitoring loop
       setInterval(() => {
-        if (this.synthesizer) {
-           this.activeVoices.set((this.synthesizer as any).voicesAmount || 0);
-        }
+        if (this.synthesizer) this.activeVoices.set((this.synthesizer as any).voicesAmount || 0);
       }, 200);
-
       if (this.synthesizer) this.applyAllLayers();
     } catch (e) {
       console.error('Failed to load AudioWorklet module', e);
     }
   }
 
-  async loadSoundFont(arrayBuffer: ArrayBuffer, fileName: string, save = true) {
-    if (!this.audioContext || !this.isInitialized()) {
-      await this.initialize();
+  public async pickNativeFile() {
+    if (!this.isNative) return;
+    try {
+      // FORÇAR BARRA DE PROGRESSO ANTES DO PICKER (Para o usuário saber que começou)
+      this.isCopying.set(true);
+      this.copyProgress.set(5);
+      this.nativeDebugMsg.set('Abrindo Seletor de Arquivos...');
+
+      const result = await FilePicker.pickFiles({ types: ['application/octet-stream', '.sf2'], readData: false });
+      
+      if (result.files && result.files.length > 0) {
+        const file = result.files[0];
+        this.nativeDebugMsg.set(`Preparando importação: ${file.name}`);
+        this.copyProgress.set(15);
+
+        // Simulamos o progresso enquanto enviamos o comando nativo
+        const interval = setInterval(() => {
+           if (this.copyProgress() < 90) this.copyProgress.set(this.copyProgress() + 5);
+        }, 500);
+
+        const newSF = { name: file.name, data: new ArrayBuffer(0), path: file.path };
+        this.libraryFiles.update(files => [...files, newSF as any]);
+        this.saveNativeRefToDB(file.name, file.path!);
+        
+        await this.loadSoundFont(new ArrayBuffer(0), file.name, 0, file.path!);
+        
+        clearInterval(interval);
+        this.copyProgress.set(100);
+        this.nativeDebugMsg.set('Timbre Carregado!');
+        setTimeout(() => {
+          this.isCopying.set(false);
+          this.nativeDebugMsg.set(null);
+        }, 1500);
+      } else {
+        this.isCopying.set(false);
+        this.nativeDebugMsg.set(null);
+      }
+    } catch (e) {
+      console.error('Erro ao selecionar arquivo nativo:', e);
+      this.isCopying.set(false);
+      this.nativeDebugMsg.set('Erro ao selecionar arquivo');
     }
-    
+  }
+
+  public async testAudio() {
+     if (this.isNative) {
+        this.nativeDebugMsg.set('Disparando Nota de Teste (60)...');
+        // Usamos o plugin nativo para tocar uma nota direta
+        await AudioEngine.noteOn({ channel: 0, note: 60, velocity: 100 });
+        setTimeout(() => AudioEngine.noteOff({ channel: 0, note: 60 }), 1000);
+        setTimeout(() => this.nativeDebugMsg.set(null), 2000);
+     }
+  }
+
+  public async loadSoundFont(data: ArrayBuffer, fileName: string, channel: number = 0, nativePath?: string) {
+    if (!this.isInitialized()) await this.initialize();
+
+    if (this.isNative) {
+      try {
+        let result;
+        if (nativePath) {
+          result = await AudioEngine.loadSoundFont({ path: nativePath, base64: '', channel });
+        } else {
+          const base64 = this.arrayBufferToBase64(data);
+          result = await AudioEngine.loadSoundFont({ base64, channel });
+        }
+        if (result && result.sfId !== undefined) {
+          await AudioEngine.setProgram({ channel, sfId: result.sfId, bank: 0, program: 0 });
+          await AudioEngine.controlChange({ channel, controller: 7, value: 127 });
+          await AudioEngine.controlChange({ channel, controller: 11, value: 127 });
+        }
+        this.currentSoundFont.set(fileName);
+        return result;
+      } catch (e) {
+        console.error('Erro nativo:', e);
+        return null;
+      }
+    }
+
     if (!this.synthesizer) {
-      this.synthesizer = new WorkletSynthesizer(this.audioContext!, {
-        interpolationType: this.performanceMode() ? 0 : 2, // 0 = linear (turbo), 2 = hermite (hi-fi)
-        voiceCap: 64
-      } as any);
+      this.synthesizer = new WorkletSynthesizer(this.audioContext!, { interpolationType: 1, voiceCap: 64 } as any);
       this.synthesizer.connect(this.audioContext!.destination);
     }
-
-    if (save) {
-      await this.saveFileToDB(fileName, arrayBuffer);
-    }
-
-    // Determine bank offset
-    let offset = 0;
-    if (this.fontOffsets.has(fileName)) {
-      offset = this.fontOffsets.get(fileName)!;
-    } else {
-      offset = this.fontOffsets.size * 128; // Each SF2 gets its own bank range
-      this.fontOffsets.set(fileName, offset);
-    }
-    
-    await this.synthesizer.soundBankManager.addSoundBank(arrayBuffer, fileName, offset);
-    
-    // Tiny delay to let the manager update the preset list
-    await new Promise(r => setTimeout(r, 100));
-
-    const presetList = this.synthesizer.presetList;
-    if (presetList && presetList.length > 0) {
-       this.presets.set(presetList);
-    } else {
-       this.presets.set((this.synthesizer as any).presets || []);
-    }
-    
-    this.currentSoundFont.set(fileName);
-    this.applyAllLayers();
+    const offset = this.fontOffsets.get(fileName) || (this.fontOffsets.size * 100);
+    this.fontOffsets.set(fileName, offset);
+    // @ts-ignore
+    await this.synthesizer.loadSoundFont(data, offset);
+    return { sfId: offset };
   }
 
-  private applyAllLayers() {
-    if (!this.synthesizer) return;
-    this.layers().forEach(layer => {
-      this.applyLayerSettings(layer);
-    });
-  }
-
-  private applyLayerSettings(layer: SynthLayer) {
-    if (!this.synthesizer) return;
-    const ch = layer.channel;
-    
-    this.synthesizer.controllerChange(ch, 0, layer.bankMSB);
-    this.synthesizer.controllerChange(ch, 32, layer.bankLSB);
-    
-    this.synthesizer.programChange(ch, layer.program);
-    
-    // MIDI CCs are 0-127. 
-    // If volume is 1.0 (gain), we send 100 on CC 7. If 1.2, we send 127.
-    // For SpessaSynth, CC 7 is standard channel volume.
-    const volVal = Math.min(127, Math.floor(layer.volume * 100)); // Standard scale
-    this.synthesizer.controllerChange(ch, 7, volVal);
-    
-    this.synthesizer.controllerChange(ch, 91, Math.floor(layer.reverb * 127));
-    this.synthesizer.controllerChange(ch, 93, Math.floor(layer.chorus * 127));
-    this.synthesizer.controllerChange(ch, 10, Math.floor(((layer.pan + 1) / 2) * 127));
-  }
-
-  updateLayer(id: string, partial: Partial<SynthLayer>) {
-    this.layers.update(ls => ls.map(l => {
-      if (l.id === id) {
-        const updated = { ...l, ...partial };
-        this.applyLayerSettings(updated);
-        return updated;
-      }
-      return l;
-    }));
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
   }
 
   addLayer() {
-    const nextChannel = this.layers().length % 15;
+    const nextIdx = (this.layers().length + 1).toString();
     const newLayer: SynthLayer = {
-      id: Math.random().toString(36).substring(2, 9),
-      name: `Camada ${this.layers().length + 1}`,
+      id: nextIdx,
+      name: `Camada ${nextIdx}`,
       program: 0,
       bankMSB: 0,
       bankLSB: 0,
@@ -242,146 +287,64 @@ export class AudioService {
       pan: 0,
       transpose: 0,
       enabled: true,
-      channel: nextChannel
+      channel: this.layers().length
     };
     this.layers.update(l => [...l, newLayer]);
-    this.saveProject();
-    this.applyLayerSettings(newLayer);
   }
 
   removeLayer(id: string) {
-    this.layers.update(ls => ls.filter(l => l.id !== id));
+    this.layers.update(l => l.filter(layer => layer.id !== id));
   }
 
-  async noteOn(note: number, velocity: number) {
-    if (!this.isInitialized()) {
-       await this.initialize();
+  setMasterParam(param: string, value: number) {
+    if (this.isNative) {
+      if (param === 'masterGain') AudioEngine.setVolume({ channel: -1, volume: value });
     }
+  }
+
+  private applyAllLayers() {
     if (!this.synthesizer) return;
-    
-    // Safety: ensure context is running
-    if (this.audioContext?.state === 'suspended') {
-      this.audioContext.resume();
+    this.layers().forEach(l => {
+      // @ts-ignore
+      this.synthesizer?.setChannelVolume(l.channel, l.enabled ? l.volume : 0);
+      // @ts-ignore
+      this.synthesizer?.setChannelPan(l.channel, l.pan);
+    });
+  }
+
+  updateLayer(id: string, updates: Partial<SynthLayer>) {
+    this.layers.update(list => list.map(l => l.id === id ? { ...l, ...updates } : l));
+    const layer = this.layers().find(l => l.id === id);
+    if (this.isNative && layer) {
+       if (updates.volume !== undefined) AudioEngine.setVolume({ channel: layer.channel, volume: updates.volume });
+       if (updates.pan !== undefined) AudioEngine.setPan({ channel: layer.channel, pan: updates.pan });
     }
-    
-    this.layers().forEach(layer => {
-      if (layer.enabled) {
-        this.synthesizer!.noteOn(layer.channel, note + layer.transpose, velocity);
-      }
-    });
-    
-    this.activeNotes.update(notes => {
-      const newNotes = new Set(notes);
-      newNotes.add(note);
-      return newNotes;
-    });
+  }
+
+  noteOn(note: number, velocity: number = 100) {
+    if (this.isNative) {
+      AudioEngine.noteOn({ channel: 0, note, velocity });
+    } else if (this.synthesizer) {
+      // @ts-ignore
+      this.synthesizer.noteOn(0, note, velocity);
+    }
   }
 
   noteOff(note: number) {
-    if (!this.synthesizer) return;
-    
-    this.layers().forEach(layer => {
-      if (layer.enabled) {
-        this.synthesizer!.noteOff(layer.channel, note + layer.transpose);
-      }
-    });
-
-    this.activeNotes.update(notes => {
-      const newNotes = new Set(notes);
-      newNotes.delete(note);
-      return newNotes;
-    });
-  }
-
-  public handleMidiCC(cc: number, value: number) {
-    const learning = this.isLearning();
-    const normalized = value / 127;
-
-    if (learning) {
-      if (learning.layerId === 'master') {
-        this.masterMidiMappings.update(m => ({ ...m, [`${learning.param}CC`]: cc }));
-      } else {
-        this.updateLayer(learning.layerId, {
-          midiMappings: {
-            ...this.layers().find(l => l.id === learning.layerId)?.midiMappings,
-            [`${learning.param}CC`]: cc
-          }
-        });
-      }
-      this.isLearning.set(null);
-      return;
-    }
-
-    // Process Master Mappings
-    const masterMaps = this.masterMidiMappings();
-    if (cc === masterMaps['masterGainCC']) this.setVolume(normalized * 2);
-    if (cc === masterMaps['reverbGainCC']) this.setMasterParam('reverbGain', normalized * 10);
-    if (cc === masterMaps['reverbTimeCC']) this.setReverbTime(value);
-    if (cc === masterMaps['delayGainCC']) this.setDelay(normalized * 5);
-
-    // Process Layer Mappings
-    this.layers().forEach(layer => {
-      const maps = layer.midiMappings;
-      if (!maps) return;
-
-      if (cc === maps.volumeCC) {
-        this.updateLayer(layer.id, { volume: normalized * 2 });
-      } else if (cc === maps.reverbCC) {
-        this.updateLayer(layer.id, { reverb: normalized });
-      } else if (cc === maps.panCC) {
-        this.updateLayer(layer.id, { pan: (normalized * 2) - 1 });
-      }
-    });
-
-    if (cc === 7 && Object.keys(masterMaps).length === 0) {
-       this.setVolume(normalized * 2);
+    if (this.isNative) {
+      AudioEngine.noteOff({ channel: 0, note });
+    } else if (this.synthesizer) {
+      // @ts-ignore
+      this.synthesizer.noteOff(0, note);
     }
   }
 
-  setMasterParam(param: string, value: any) {
-    if (!this.synthesizer) return;
-    this.synthesizer.setMasterParameter(param as any, value);
-  }
-
-  setReverbTime(value: number) {
-    if (!this.synthesizer) return;
-    const v = Math.floor(value);
-    const addr = [0x40, 0x01, 0x34];
-    const data = [v];
-    let sum = 0;
-    addr.forEach(b => sum += b);
-    data.forEach(b => sum += b);
-    let checksum = 128 - (sum % 128);
-    if (checksum === 128) checksum = 0;
-    const sysex = [0x41, 0x10, 0x42, 0x12, ...addr, ...data, checksum, 0xF7];
-    this.synthesizer.systemExclusive(sysex);
-  }
-
-  setSustain(on: boolean) {
-    if (!this.synthesizer) return;
-    this.layers().forEach(layer => {
-      if (layer.enabled) {
-        this.synthesizer!.controllerChange(layer.channel, 64, on ? 127 : 0);
-      }
-    });
-  }
-
-  setDelay(value: number) {
-    if (!this.synthesizer) return;
-    this.synthesizer.setMasterParameter('delayGain', value);
-  }
-
-  setVolume(volume: number) {
-    if (!this.synthesizer) return;
-    this.synthesizer.setMasterParameter('masterGain', volume);
-  }
-
-  togglePerformance() {
-    const isTurbo = !this.performanceMode();
-    this.performanceMode.set(isTurbo);
-    if (this.synthesizer) {
-       // 0 = Linear (Fast), 2 = Hermite/Cubic (High quality)
-       this.synthesizer.setMasterParameter('interpolationType' as any, isTurbo ? 0 : 2);
+  setSustain(isOn: boolean) {
+    if (this.isNative) {
+      AudioEngine.controlChange({ channel: 0, controller: 64, value: isOn ? 127 : 0 });
+    } else if (this.synthesizer) {
+      // @ts-ignore
+      this.synthesizer.stopNote(0, 0); // Simplified sustain for web
     }
   }
 }

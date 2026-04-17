@@ -1,4 +1,4 @@
-import { Component, inject, effect, signal, untracked } from '@angular/core';
+import { Component, inject, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AudioService, SynthLayer } from './services/audio.service';
@@ -9,1021 +9,1571 @@ import { MidiService } from './services/midi.service';
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="app-container">
-      <header class="header glass">
-        <div class="logo">
-          <i class="fas fa-wave-square"></i>
-          <h1>AudioRevolution <span class="badge">Enterprise</span></h1>
+    <div class="app-container main-layout">
+      <!-- Sidebar de Navegação -->
+      <nav class="side-nav glass">
+        <div class="nav-top">
+          <button class="nav-item" [class.active]="audioService.viewMode() === 'home'" 
+                  (click)="audioService.viewMode.set('home'); selectedLayerForIcon.set(null)">
+            <i class="fas fa-home"></i>
+            <span>HOME</span>
+          </button>
+          <button class="nav-item" [class.active]="audioService.viewMode() === 'mixer'" 
+                  (click)="audioService.viewMode.set('mixer'); selectedLayerForIcon.set(null)">
+            <i class="fas fa-sliders-h"></i>
+            <span>MIXER</span>
+          </button>
+          <button class="nav-item" [class.active]="audioService.viewMode() === 'effects'" 
+                  (click)="audioService.viewMode.set('effects'); selectedLayerForIcon.set(null)">
+            <i class="fas fa-wave-square"></i>
+            <span>EFEITOS</span>
+          </button>
+          <button class="nav-item" [class.active]="audioService.viewMode() === 'library'" 
+                  (click)="audioService.viewMode.set('library'); selectedLayerForIcon.set(null)">
+            <i class="fas fa-book"></i>
+            <span>LIBRARY</span>
+          </button>
         </div>
-        
-        <div class="header-actions">
-           <button class="btn-save" (click)="audioService.saveProject()">
-              <i class="fas fa-save"></i> Salvar Projeto
-           </button>
-            <div class="header-stats">
-            <button class="view-toggle" (click)="toggleView()">
-              <i class="fas" [class.fa-sliders-h]="audioService.viewMode() === 'cards'" [class.fa-th-large]="audioService.viewMode() === 'mixer'"></i>
-              {{ audioService.viewMode() === 'mixer' ? 'VER CARDS' : 'ABRIR MIXER' }}
-            </button>
-            <button class="master-toggle-header" [class.off]="!masterVisible()" (click)="masterVisible.set(!masterVisible())">
-               <i class="fas fa-sliders-h"></i> MASTER {{ masterVisible() ? 'ON' : 'OFF' }}
-            </button>
-            <div class="stat-item" [class.high-load]="audioService.activeVoices() > 80">
-                <i class="fas fa-microchip"></i> 
-                <span>Vozes: {{ audioService.activeVoices() }}</span>
+        <div class="nav-bottom">
+          <button class="nav-item">
+            <i class="fas fa-cog"></i>
+            <span>CONFIG</span>
+          </button>
+        </div>
+      </nav>
+
+      <div class="main-wrapper">
+        <!-- Overlay de Carregamento/Cópia (ESTILO PRO) -->
+        @if (audioService.isCopying()) {
+          <div class="copy-overlay animate-in">
+            <div class="copy-modal glass">
+              <i class="fas fa-file-import fa-spin-pulse"></i>
+              <h3>Importando Timbre Profissional...</h3>
+              <p>Otimizando amostras para performance de baixa latência</p>
+              <div class="pro-progress-container">
+                <div class="pro-progress-bar" [style.width.%]="audioService.copyProgress()"></div>
               </div>
-              <button class="performance-toggle" [class.turbo]="audioService.performanceMode()" (click)="audioService.togglePerformance()">
-                <i class="fas" [class.fa-tachometer-alt]="!audioService.performanceMode()" [class.fa-bolt]="audioService.performanceMode()"></i>
-                {{ audioService.performanceMode() ? 'TURBO ON' : 'HI-FI' }}
-              </button>
-            </div>
-            <div class="status-indicators">
-              <div class="indicator" [class.active]="midiService.inputs().length > 0">
-                <i class="fas fa-keyboard"></i>
-                MIDI: {{ midiService.inputs().length > 0 ? 'ON' : 'OFF' }}
-              </div>
-              <div class="indicator" [class.active]="audioService.isInitialized()">
-                <i class="fas fa-bolt"></i>
-                Worklet: {{ audioService.isInitialized() ? 'Ativo' : 'Inativo' }}
-              </div>
-            </div>
-        </div>
-      </header>
-
-      <div class="master-strip glass" [class.minimized]="masterMinimized()" *ngIf="masterVisible()">
-        <div class="master-header">
-           <i class="fas fa-sliders-h"></i> MASTER
-           <button class="minimize-btn" (click)="masterMinimized.set(!masterMinimized())">
-              <i class="fas" [class.fa-chevron-up]="!masterMinimized()" [class.fa-chevron-down]="masterMinimized()"></i>
-           </button>
-        </div>
-        
-        <div class="master-content-wrapper" *ngIf="!masterMinimized()">
-          <div class="master-controls">
-             <div class="m-knob">
-                <label>VOLUME</label>
-                <div class="m-input">
-                  <input type="range" min="0" max="2" step="0.1" value="1" (input)="onMasterParam('masterGain', $event)">
-                  <button class="mini-learn" [class.active]="isLearning('master', 'masterGain')" (click)="startLearning('master', 'masterGain')">
-                    <i class="fas fa-bolt"></i>
-                  </button>
-                </div>
-             </div>
-             
-             <div class="m-knob">
-                <label>REVERB LVL</label>
-                <div class="m-input">
-                  <input type="range" min="0" max="10" step="0.1" value="0.5" (input)="onMasterParam('reverbGain', $event)">
-                  <button class="mini-learn" [class.active]="isLearning('master', 'reverbGain')" (click)="startLearning('master', 'reverbGain')">
-                    <i class="fas fa-bolt"></i>
-                  </button>
-                </div>
-             </div>
-
-             <div class="m-knob">
-                <label>REV TIME</label>
-                <div class="m-input">
-                  <input type="range" min="0" max="127" step="1" value="64" (input)="onReverbTimeChange($event)">
-                  <button class="mini-learn" [class.active]="isLearning('master', 'reverbTime')" (click)="startLearning('master', 'reverbTime')">
-                    <i class="fas fa-bolt"></i>
-                  </button>
-                </div>
-             </div>
-
-             <div class="m-knob">
-                <label>DELAY</label>
-                <div class="m-input">
-                  <input type="range" min="0" max="5" step="0.1" value="0.5" (input)="onDelayChange($event)">
-                  <button class="mini-learn" [class.active]="isLearning('master', 'delayGain')" (click)="startLearning('master', 'delayGain')">
-                    <i class="fas fa-bolt"></i>
-                  </button>
-                </div>
-             </div>
-          </div>
-
-          <div class="master-actions">
-             <button class="btn-sustain-mini" [class.on]="sustain()" (click)="toggleSustain(!sustain())">
-                <i class="fas fa-lock"></i> SUSTAIN {{ sustain() ? 'ON' : 'OFF' }}
-             </button>
-             <button class="btn-upload-mini" (click)="fileInput.click()">
-               <i class="fas fa-file-audio"></i> SF2
-             </button>
-             <input #fileInput type="file" (change)="onFileSelected($event)" accept=".sf2" hidden>
-          </div>
-
-          <div class="master-midi">
-             <div class="midi-led" [class.active]="midiService.messages()"></div>
-             <div class="midi-msg">
-                @if (midiService.messages(); as msg) {
-                  <span>N: {{ msg.note }} V: {{ msg.velocity }}</span>
-                } @else {
-                  <span class="muted">MIDI IDLE</span>
-                }
-             </div>
-          </div>
-        </div>
-      </div>
-
-      <main class="content">
-
-        <!-- Main Area: Layers or Mixer -->
-        <section class="layers-area">
-          <div class="area-header">
-            <h2>
-              <i class="fas" [class.fa-layer-group]="audioService.viewMode() === 'cards'" [class.fa-sliders-v]="audioService.viewMode() === 'mixer'"></i>
-              {{ audioService.viewMode() === 'mixer' ? 'Mixer Live' : 'Camadas de Som (Layers)' }}
-            </h2>
-            <div class="header-btns">
-              <button class="btn-add" (click)="audioService.addLayer()" *ngIf="audioService.viewMode() === 'cards'">
-                <i class="fas fa-plus"></i> Adicionar Camada
-              </button>
+              <span class="progress-info">{{ audioService.copyProgress() }}%</span>
             </div>
           </div>
+        }
+        <!-- Header Superior -->
+        @if (!audioService.isImmersiveMode()) {
+          <header class="main-header animate-in">
+            <div class="project-info">
+              <div class="dropdown">
+                <span class="p-name">Meu Projeto Ao Vivo</span>
+                <i class="fas fa-chevron-down"></i>
+              </div>
+              <span class="badge-live">LIVE</span>
+            </div>
+            
+              <div class="header-actions">
+                <button class="btn-live-mode" (click)="testAudio()">
+                   <i class="fas fa-volume-up"></i> TESTAR SOM
+                </button>
+                <button class="btn-live-mode">
+                  <i class="fas fa-bolt"></i> MODO AO VIVO
+                </button>
+              <div class="bpm-control">
+                <span class="bpm-val">120 BPM</span>
+              </div>
+              <button class="icon-btn-circle"><i class="fas fa-cog"></i></button>
+              <button class="icon-btn-circle"><i class="fas fa-ellipsis-v"></i></button>
+            </div>
+          </header>
+        }
+
+        <!-- Área de Conteúdo -->
+        <main class="content-area">
+          <!-- LIBRARY VIEW -->
+          @if (audioService.viewMode() === 'library') {
+             <div class="library-view">
+               <div class="panel-header">
+                  <h3>Sua Biblioteca de Timbres (.SF2)</h3>
+                  <button class="btn-live-mode" (click)="libFileInput.click()">
+                    <i class="fas fa-plus"></i> NOVA SF2
+                  </button>
+                  <input #libFileInput type="file" (change)="onFileSelected($event)" accept=".sf2" hidden>
+               </div>
+               
+               <div class="library-grid">
+                 @for (sf of availableSF2s(); track sf.name) {
+                   <div class="sf-card-premium glass-card">
+                      <div class="sf-main-info">
+                         <div class="sf-status-icon active">
+                            <i class="fas fa-file-audio"></i>
+                         </div>
+                         <div class="sf-text">
+                            <span class="sf-filename">{{ sf.name.replace('.sf2', '') }}</span>
+                            <span class="sf-meta">SOUNDFONT SF2 • {{ (sf.data.byteLength / 1024 / 1024).toFixed(1) }} MB</span>
+                         </div>
+                      </div>
+                      <div class="sf-card-actions">
+                         <button class="btn-sf-delete" (click)="deleteFromLibrary(sf.name)" title="Remover">
+                            <i class="fas fa-trash-alt"></i>
+                         </button>
+                      </div>
+                   </div>
+                 } @empty {
+                   <div class="library-empty-state">
+                      <div class="empty-icon-circle">
+                         <i class="fas fa-folder-open"></i>
+                      </div>
+                      <h4>Sua Biblioteca está vazia</h4>
+                      <p>Importe arquivos .sf2 para começar sua jornada sonora.</p>
+                   </div>
+                 }
+               </div>
+             </div>
+          }
+
+          <!-- Modais removidos em favor do Select integrado -->
 
           @if (audioService.viewMode() === 'mixer') {
-            <div class="mixer-board glass">
-               @for (layer of audioService.layers(); track layer.id) {
-                 <div class="mixer-channel" [class.muted-state]="!layer.enabled">
-                    <div class="slider-wrapper">
-                       <input type="range" class="mixer-slider" [value]="layer.volume" min="0" max="2" step="0.01" (input)="onLayerVol(layer, $event)" orient="vertical">
+             <!-- Visão Mixer (Vertical) -->
+             <section class="mixer-view animate-in">
+               <div class="mixer-scroll">
+                   <!-- Canal Master -->
+                   <div class="mixer-strip master animate-in">
+                       <div class="strip-header">
+                          <span class="ch-idx-badge">MASTER</span>
+                          <span class="strip-label">MAIN OUT</span>
+                       </div>
+                       
+                       <div class="fader-vu-container">
+                          <div class="fader-track">
+                             <input type="range" class="vertical-fader" min="0" max="2" step="0.01" value="1" (input)="onMasterParam('masterGain', $event)">
+                          </div>
+                          <div class="vu-meter-pro">
+                             <div class="vu-seg" [class.active-r]="audioService.activeVoices() > 200"></div>
+                             <div class="vu-seg" [class.active-r]="audioService.activeVoices() > 180"></div>
+                             <div class="vu-seg" [class.active-y]="audioService.activeVoices() > 150"></div>
+                             <div class="vu-seg" [class.active-y]="audioService.activeVoices() > 120"></div>
+                             <div class="vu-seg" [class.active-g]="audioService.activeVoices() > 100"></div>
+                             <div class="vu-seg" [class.active-g]="audioService.activeVoices() > 80"></div>
+                             <div class="vu-seg" [class.active-g]="audioService.activeVoices() > 60"></div>
+                             <div class="vu-seg" [class.active-g]="audioService.activeVoices() > 40"></div>
+                             <div class="vu-seg" [class.active-g]="audioService.activeVoices() > 20"></div>
+                             <div class="vu-seg" [class.active-g]="audioService.activeVoices() > 5"></div>
+                          </div>
+                       </div>
+                       
+                       <span class="db-val">-2.0 dB</span>
+                       
+                       <div class="strip-footer">
+                          <button class="btn-pro">LIMITER</button>
+                       </div>
                     </div>
-                    <button class="mixer-toggle" [class.active]="layer.enabled" (click)="audioService.updateLayer(layer.id, {enabled: !layer.enabled})">
-                       {{ layer.enabled ? 'ON' : 'OFF' }}
-                    </button>
-                    <div class="channel-info">
-                       <div class="channel-label">{{ layer.name }}</div>
-                       <div class="ch-id">CHANNEL {{ layer.channel + 1 }}</div>
+
+                   @for (layer of audioService.layers(); track layer.id) {
+                    <div class="mixer-strip animate-in" [style.animation-delay]="layer.channel * 0.05 + 's'">
+                       <div class="strip-header">
+                          <span class="ch-idx-badge">CH {{ layer.channel + 1 }}</span>
+                          <span class="strip-label">{{ layer.name }}</span>
+                       </div>
+
+                       <div class="inst-icon-wrap">
+                          <i [class]="getInstrumentIconClass(layer)" [style.color]="getInstrumentColor(layer)"></i>
+                       </div>
+                       
+                       <div class="fader-vu-container">
+                          <div class="fader-track">
+                             <input type="range" class="vertical-fader" [value]="layer.volume" min="0" max="2" step="0.01" (input)="onLayerVol(layer, $event)">
+                          </div>
+                          <div class="vu-meter-pro">
+                             <div class="vu-seg" [class.active-r]="layer.volume > 1.8"></div>
+                             <div class="vu-seg" [class.active-r]="layer.volume > 1.6"></div>
+                             <div class="vu-seg" [class.active-y]="layer.volume > 1.4"></div>
+                             <div class="vu-seg" [class.active-y]="layer.volume > 1.2"></div>
+                             <div class="vu-seg" [class.active-g]="layer.volume > 1.0"></div>
+                             <div class="vu-seg" [class.active-g]="layer.volume > 0.8"></div>
+                             <div class="vu-seg" [class.active-g]="layer.volume > 0.6"></div>
+                             <div class="vu-seg" [class.active-g]="layer.volume > 0.4"></div>
+                             <div class="vu-seg" [class.active-g]="layer.volume > 0.2"></div>
+                             <div class="vu-seg" [class.active-g]="layer.volume > 0.05"></div>
+                          </div>
+                       </div>
+
+                       <span class="db-val">{{ (layer.volume * 10 - 10) | number:'1.1-1' }} dB</span>
+                       
+                       <div class="strip-footer">
+                          <button class="btn-pro solo" [class.active]="isSolo(layer)">S</button>
+                          <button class="btn-pro mute" [class.active]="!layer.enabled" 
+                                  (click)="audioService.updateLayer(layer.id, {enabled: !layer.enabled})">
+                            M
+                          </button>
+                       </div>
                     </div>
-                 </div>
-               }
-            </div>
-          } @else {
-            <!-- Original Layers Grid -->
-            <div class="layers-grid">
-              @for (layer of audioService.layers(); track layer.id) {
-                <div class="layer-card glass" [class.disabled]="!layer.enabled" [class.learning]="audioService.isLearning()?.layerId === layer.id">
-                  <div class="layer-header">
-                    <div class="layer-id">CH {{ layer.channel + 1 }}</div>
-                    <input class="layer-name" [(ngModel)]="layer.name" (blur)="audioService.updateLayer(layer.id, {name: layer.name})">
-                    <div class="layer-actions">
-                      <button class="icon-btn" (click)="audioService.updateLayer(layer.id, {enabled: !layer.enabled})">
-                        <i class="fas" [class.fa-eye]="layer.enabled" [class.fa-eye-slash]="!layer.enabled"></i>
-                      </button>
-                      <button class="icon-btn delete" (click)="audioService.removeLayer(layer.id)">
-                        <i class="fas fa-trash"></i>
-                      </button>
-                    </div>
+                   }
+
+                  <div class="add-timbre-strip">
+                     <button (click)="audioService.addLayer()">
+                        <i class="fas fa-plus"></i>
+                        <span>ADICIONAR TIMBRE</span>
+                     </button>
+                  </div>
+               </div>
+             </section>
+          } @else if (audioService.viewMode() === 'home') {
+             <!-- Visão Home/Performance -->
+             <section class="home-grid animate-in">
+                <div class="timbres-panel">
+                  <div class="panel-header">
+                    <h3>TIMBRES ATIVOS</h3>
+                    <button class="btn-ghost" (click)="audioService.addLayer()">+ ADICIONAR</button>
                   </div>
 
-                  <div class="layer-body">
-                    <div class="patch-selector">
-                      <label>Instrumento</label>
-                      <select class="custom-select" (change)="onPatchChange(layer, $event)" [disabled]="!audioService.presets().length">
-                        @if (!audioService.presets().length) {
-                          <option>Aguardando SoundFont...</option>
-                        }
-                        @for (p of audioService.presets(); track p.program + '-' + p.bankMSB + '-' + p.bankLSB) {
-                          <option [value]="p.program + ',' + p.bankMSB + ',' + p.bankLSB" [selected]="p.program === layer.program && p.bankMSB === layer.bankMSB">
-                            {{ p.name }} (B: {{ p.bankMSB }})
-                          </option>
-                        }
-                      </select>
-                        <button class="subir-timbre-btn" (click)="layerFile.click()">
-                           <i class="fas fa-upload"></i> Subir Timbre (SF2)
-                        </button>
-                        <input #layerFile type="file" (change)="onFileSelected($event, layer)" accept=".sf2" hidden>
-                     </div>
-                     @if (layer.soundFontName) {
-                        <div class="sf-badge">SF2: {{ layer.soundFontName }}</div>
-                     }
+                  <div class="timbres-list">
+                    @for (layer of audioService.layers(); track layer.id) {
+                      <div class="timbre-card" [style.--accent]="getLayerColor(layer.channel)" [class.inactive]="!layer.enabled">
+                        <span class="t-idx">{{ layer.channel + 1 }}</span>
+                        <div class="t-img" (click)="selectedLayerForIcon.set(layer)">
+                           <i [class]="getInstrumentIconClass(layer)" [style.color]="getInstrumentColor(layer)"></i>
+                        </div>
+                        <div class="t-main">
+                           <div class="t-title">
+                              <input class="layer-name-input" type="text" [value]="layer.name" 
+                                     (change)="onLayerNameChange(layer, $event)"
+                                     (click)="$event.stopPropagation()">
+                           </div>
+                           <div class="t-selector-wrapper">
+                              <select class="premium-select" (change)="onSFSelectChange(layer, $event)">
+                                 <option value="">SELECIONAR...</option>
+                                 @for (sf of availableSF2s(); track sf.name) {
+                                    <option [value]="sf.name" [selected]="layer.soundFontName === sf.name">
+                                       {{ sf.name.split('.sf2')[0] }}
+                                    </option>
+                                 }
+                              </select>
+                              <i class="fas fa-chevron-down select-arrow"></i>
+                           </div>
+                        </div>
+                        <div class="t-control">
+                           <input type="range" class="mini-slider" [value]="layer.volume" min="0" max="2" (input)="onLayerVol(layer, $event)">
+                        </div>
+                        <div class="t-actions">
+                           <span class="t-db">{{ (layer.volume * 100).toFixed(0) }}%</span>
+                           
+                           <div class="t-btns-group">
+                              <!-- Botão Mute -->
+                              <button class="btn-m" [class.active]="!layer.enabled" 
+                                      (click)="audioService.updateLayer(layer.id, {enabled: !layer.enabled})">
+                                M
+                              </button>
 
-                    <div class="layer-controls">
-                      <div class="control-group">
-                         <label>Vol</label>
-                         <div class="input-with-learn">
-                           <input type="range" [value]="layer.volume" min="0" max="2" step="0.05" (input)="onLayerVol(layer, $event)">
-                           <button class="learn-btn" [class.active]="isLearning(layer.id, 'volume')" (click)="startLearning(layer.id, 'volume')">
-                             <i class="fas fa-bolt"></i>
-                           </button>
-                         </div>
-                         <span class="val">{{ layer.volume | number:'1.1-1' }}</span>
+                              <!-- Botão Excluir -->
+                              <button class="btn-delete" (click)="audioService.removeLayer(layer.id)">
+                                <i class="fas fa-trash"></i>
+                              </button>
+                           </div>
+                        </div>
                       </div>
-
-                      <div class="control-group">
-                         <label>Rev</label>
-                         <div class="input-with-learn">
-                           <input type="range" [value]="layer.reverb" min="0" max="1" step="0.05" (input)="onLayerRev(layer, $event)">
-                           <button class="learn-btn" [class.active]="isLearning(layer.id, 'reverb')" (click)="startLearning(layer.id, 'reverb')">
-                             <i class="fas fa-bolt"></i>
-                           </button>
-                         </div>
-                      </div>
-
-                      <div class="control-group">
-                         <label>Pan</label>
-                         <div class="input-with-learn">
-                           <input type="range" [value]="layer.pan" min="-1" max="1" step="0.1" (input)="onLayerPan(layer, $event)">
-                           <button class="learn-btn" [class.active]="isLearning(layer.id, 'pan')" (click)="startLearning(layer.id, 'pan')">
-                             <i class="fas fa-bolt"></i>
-                           </button>
-                         </div>
-                      </div>
-
-                      <div class="control-group accent">
-                         <label>Transp</label>
-                         <input type="range" [value]="layer.transpose" min="-24" max="24" step="1" (input)="onLayerTranspose(layer, $event)">
-                         <span class="val">{{ layer.transpose > 0 ? '+' : '' }}{{ layer.transpose }}</span>
-                      </div>
-                    </div>
+                    }
                   </div>
                 </div>
-              }
-            </div>
-          }
-        </section>
-      </main>
 
-      <footer class="piano-footer glass">
-        <div class="piano-container">
-          @for (n of notes; track n) {
-            <div class="key" 
-                 [class.black]="isBlack(n)"
-                 [class.active]="audioService.activeNotes().has(n)"
-                 (mousedown)="onKeyStart(n, $event)"
-                 (mouseup)="onKeyEnd(n, $event)"
-                 (mouseleave)="onKeyEnd(n, $event)"
-                 (mouseenter)="onKeyMove(n, $event)">
-            </div>
+                <div class="side-panels">
+                   <!-- Efeitos Globais -->
+                   <div class="effects-panel glass">
+                      <h3>EFEITOS GLOBAIS</h3>
+                      <div class="effects-list">
+                         <div class="effect-item">
+                            <button class="fx-toggle active"><i class="fas fa-power-off"></i></button>
+                            <span class="fx-name">REVERB</span>
+                            <div class="fx-knob-wrap">
+                               <div class="knob-svg"></div>
+                               <span class="fx-val">35 %</span>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                         </div>
+                         <div class="effect-item">
+                            <button class="fx-toggle"><i class="fas fa-power-off"></i></button>
+                            <span class="fx-name">DELAY</span>
+                            <div class="fx-knob-wrap">
+                               <div class="knob-svg"></div>
+                               <span class="fx-val">22 %</span>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                         </div>
+                         <div class="effect-item">
+                            <button class="fx-toggle active"><i class="fas fa-power-off"></i></button>
+                            <span class="fx-name">CHORUS</span>
+                            <div class="fx-knob-wrap">
+                               <div class="knob-svg"></div>
+                               <span class="fx-val">18 %</span>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                         </div>
+                      </div>
+                   </div>
+
+                   <!-- Info Soundfont -->
+                   <div class="info-panel glass">
+                      <span class="label">ARQUIVO SF2 CARREGADO</span>
+                      <div class="sf-file">
+                         <i class="fas fa-file-audio"></i>
+                         <div class="sf-details">
+                            <span class="sf-name">{{ audioService.currentSoundFont() || 'Nenhum carregado' }}</span>
+                            <span class="sf-size">2.4 MB</span>
+                         </div>
+                         <button class="btn-change" (click)="fileInput.click()">TROCAR</button>
+                         <input #fileInput type="file" (change)="onFileSelected($event)" accept=".sf2" hidden>
+                      </div>
+                      
+                      <div class="cpu-monitor">
+                         <div class="monitor-header">
+                            <span>USO DA CPU / VOZES</span>
+                            <span>{{ audioService.activeVoices() }} / 256</span>
+                         </div>
+                         <div class="progress-bar">
+                            <div class="progress-fill" [style.width.%]="(audioService.activeVoices() / 256) * 100"></div>
+                         </div>
+                         <span class="cpu-perc">{{ (audioService.activeVoices() / 256) * 100 | number:'1.0-0' }}%</span>
+                      </div>
+                   </div>
+                </div>
+             </section>
           }
-        </div>
-      </footer>
+        </main>
+
+        <!-- Teclado Visual -->
+        @if (audioService.viewMode() === 'home' && keyboardVisible()) {
+          <footer class="visual-keyboard animate-up">
+             <div class="piano-container">
+               @for (n of notes; track n) {
+                 <div class="key" 
+                      [class.black]="isBlack(n)"
+                      [class.active]="audioService.activeNotes().has(n)"
+                      (mousedown)="onKeyStart(n, $event)"
+                      (mouseup)="onKeyEnd(n, $event)"
+                      (mouseleave)="onKeyEnd(n, $event)"
+                      (touchstart)="onKeyTouchStart(n, $event)"
+                      (touchend)="onKeyTouchEnd(n, $event)">
+                 </div>
+               }
+             </div>
+          </footer>
+        }
+
+        @if (!audioService.isImmersiveMode()) {
+          <div class="status-bar animate-in">
+             <div class="s-left">
+                <span class="label">PRESET</span>
+                <span class="val">{{ audioService.currentPresetName() || 'Show Domingo' }}</span>
+             </div>
+             
+             <div class="s-center">
+                <div class="midi-status" [class.connected]="audioService.midiConnected()">
+                   <i class="fas fa-keyboard"></i>
+                   <span>{{ audioService.midiConnected() ? 'MIDI CONECTADO' : 'SEM MIDI' }}</span>
+                </div>
+             </div>
+
+             <div class="s-right">
+                <!-- BOTÃO DE TECLADO CLARO E VISÍVEL -->
+                <button class="btn-footer-toggle" (click)="keyboardVisible.set(!keyboardVisible())" [class.active]="keyboardVisible()">
+                   <i class="fas fa-piano"></i>
+                   <span>{{ keyboardVisible() ? 'FECHAR TECLADO' : 'ABRIR TECLADO' }}</span>
+                </button>
+                
+                <div class="bpm-tap">
+                   <span class="label">TAP</span>
+                   <span class="val">120</span>
+                </div>
+             </div>
+          </div>
+        }
+
+        <!-- Botão Flutuante de Modo Imersivo -->
+        <button class="btn-float-immersive" (click)="audioService.isImmersiveMode.set(!audioService.isImmersiveMode())"
+                [class.active]="audioService.isImmersiveMode()">
+           <i [class]="audioService.isImmersiveMode() ? 'fas fa-expand-arrows-alt' : 'fas fa-compress-arrows-alt'"></i>
+        </button>
+
+        <!-- Seletor de Ícones (MODO PRO-MAX) -->
+        @if (selectedLayerForIcon(); as selectedLayer) {
+          <div class="modal-overlay-premium animate-in" (click)="selectedLayerForIcon.set(null)">
+            <div class="modal-content-premium glass" (click)="$event.stopPropagation()">
+              <div class="modal-header-premium">
+                <div class="header-titles">
+                  <h4>MUDAR ÍCONE DO INSTRUMENTO</h4>
+                  <span class="active-layer-name">Editando: {{ selectedLayer.name }}</span>
+                </div>
+                <button class="close-btn-premium" (click)="selectedLayerForIcon.set(null)">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              
+              <div class="assign-grid-pro">
+                @for (opt of instrumentOptions; track opt.id) {
+                  <div class="assign-card-pro" 
+                       [style.--icon-color]="opt.color || 'var(--primary)'"
+                       (click)="setLayerIcon(selectedLayer.id, opt.id)">
+                    <div class="icon-box">
+                      <i [class]="opt.iconClass || 'fas fa-music'"></i>
+                    </div>
+                    <span class="inst-name">{{ opt.name }}</span>
+                    <span class="inst-cat">PRO MIDI</span>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        }
+      </div>
     </div>
   `,
   styles: [`
     :host {
+      --bg-dark: #0a0a0f;
+      --sidebar-bg: #12121e;
+      --panel-bg: rgba(18, 18, 30, 0.6);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #ffffff;
+      --text-muted: #808090;
       --primary: #00f2ff;
-      --secondary: #7000ff;
-      --accent: #ff00c8;
-      --bg-dark: #050510;
-      --panel-bg: rgba(20, 20, 35, 0.7);
-      --border: rgba(255, 255, 255, 0.1);
+      --layer-1: #8a2be2;
+      --layer-2: #32cd32;
+      --layer-3: #1e90ff;
+      --layer-4: #ff8c00;
     }
 
-    .app-container {
-      height: 100vh;
-      background: linear-gradient(135deg, #050510 0%, #101025 100%);
+    * { box-sizing: border-box; }
+
+    :host {
       display: flex;
       flex-direction: column;
-      color: #e0e0e0;
+      height: 100vh;
       overflow: hidden;
+      background: #05050a;
+      color: #fff;
+      font-family: 'Inter', sans-serif;
+      user-select: none; /* DESATIVA SELEÇÃO DE TEXTO PARA PARECER APP NATIVO */
+    }
+
+    .main-layout {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      background: var(--bg-dark);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      position: fixed;
+      top: 0; left: 0;
+    }
+
+    /* Sidebar */
+    .side-nav {
+      width: 75px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 20px 0;
+      z-index: 100;
+      flex-shrink: 0;
+    }
+
+    .nav-item {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      padding: 12px 0;
+      cursor: pointer;
+      transition: all 0.3s;
+      width: 100%;
+      letter-spacing: 0;
+      text-transform: none;
+      font-size: 7px;
+    }
+    .nav-item i { font-size: 18px; }
+    .nav-item span { font-weight: 700; letter-spacing: 0.3px; font-size: 7px; }
+    .nav-item.active { color: var(--primary); background: rgba(0, 242, 255, 0.05); border-left: 2px solid var(--primary); }
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,0.03); }
+
+    .main-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      min-width: 0; /* IMPEDE ESTOURO DE LARGURA */
     }
 
     /* Header */
-    .header {
-      padding: 10px 30px;
+    .main-header {
+      height: 60px;
+      padding: 0 25px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      z-index: 100;
-    }
-
-    .logo h1 {
-      margin: 0;
-      font-size: 24px;
-      font-weight: 900;
-      background: linear-gradient(to right, #fff, var(--primary));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .badge {
-      font-size: 10px;
-      background: var(--accent);
-      padding: 2px 8px;
-      border-radius: 4px;
-      vertical-align: middle;
-      -webkit-text-fill-color: #fff;
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .btn-save {
-      background: var(--secondary);
-      border: none;
-      color: white;
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: all 0.3s;
-    }
-
-    .btn-save:hover {
-      box-shadow: 0 0 15px var(--secondary);
-    }
-
-    .status-indicators {
-      display: flex;
-      gap: 10px;
-    }
-
-    .indicator {
-      font-size: 10px;
-      padding: 4px 10px;
-      border-radius: 20px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--border);
-      color: #666;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .indicator.active {
-      color: var(--primary);
-      border-color: var(--primary);
-      box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
-    }
-
-    .header-stats {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-    }
-
-    @media (max-width: 900px) {
-      .header {
-        flex-direction: column;
-        padding: 10px;
-        height: auto;
-        gap: 10px;
-      }
-      
-      .logo h1 { font-size: 18px; }
-      
-      .header-actions {
-        width: 100%;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 10px;
-      }
-
-      .header-stats {
-        width: 100%;
-        justify-content: center;
-      }
-    }
-
-    .performance-toggle, .view-toggle {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #777;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 9px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: all 0.3s;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .performance-toggle.turbo {
-      background: rgba(0, 242, 255, 0.1);
-      border-color: var(--primary);
-      color: var(--primary);
-      box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
-    }
-
-    .master-strip {
-      padding: 0 30px;
-      display: flex;
-      align-items: center;
-      gap: 30px;
       border-bottom: 1px solid var(--border);
-      z-index: 90;
-      background: rgba(10, 10, 25, 0.9);
-      height: 50px;
-      transition: all 0.3s ease;
-      overflow: hidden;
+      background: rgba(10, 10, 15, 0.5);
+      backdrop-filter: blur(20px);
     }
 
-    .master-strip.minimized {
-      height: 30px;
-      background: rgba(10, 10, 25, 1);
-    }
-
-    .master-content-wrapper {
-      display: flex;
-      align-items: center;
-      gap: 30px;
-      flex-grow: 1;
-    }
-
-    .master-header {
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 2px;
-      color: var(--primary);
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      border-right: 1px solid var(--border);
-      padding-right: 20px;
-      height: 100%;
-    }
-
-    .minimize-btn {
-      background: transparent;
-      border: none;
-      color: #555;
-      cursor: pointer;
-      padding: 5px;
-      font-size: 14px;
-      transition: 0.3s;
-    }
-
-    .minimize-btn:hover { color: var(--primary); }
-
-    .master-toggle-header {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--primary);
-      color: var(--primary);
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 9px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: all 0.3s;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .master-toggle-header.off {
-      border-color: #666;
-      color: #666;
-    }
+    .project-info { display: flex; align-items: center; gap: 12px; }
+    .project-info .dropdown { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .p-name { font-size: 14px; font-weight: 600; }
+    .badge-live { background: #32cd32; color: #000; font-size: 8px; font-weight: 800; padding: 1px 5px; border-radius: 3px; }
     
-    .master-toggle-header:hover:not(.off) {
-      box-shadow: 0 0 15px var(--primary);
-    }
-
-    .master-controls {
-      display: flex;
-      gap: 25px;
-      align-items: center;
-      flex-grow: 1;
-    }
-
-    .m-knob {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      min-width: 100px;
-    }
-
-    .m-knob label {
-      font-size: 8px;
-      font-weight: bold;
-      color: #666;
-      text-transform: uppercase;
-    }
-
-    @media (max-width: 768px) {
-      .master-strip {
-        padding: 10px;
-        gap: 15px;
-        height: auto;
-        flex-direction: column;
-        align-items: stretch;
-      }
-      
-      .master-header {
-        display: none;
-      }
-
-      .master-controls {
-        flex-direction: column;
-        gap: 15px;
-        width: 100%;
-      }
-
-      .m-knob {
-        width: 100%;
-      }
-
-      .master-actions {
-        padding-left: 0;
-        border-left: none;
-        justify-content: space-around;
-        padding: 10px 0;
-        border-top: 1px solid var(--border);
-      }
-
-      .master-midi {
-        width: 100%;
-        justify-content: center;
-      }
-    }
-
-    .m-input {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .m-input input[type="range"] {
-      flex-grow: 1;
-      height: 4px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 2px;
-      accent-color: var(--primary);
-      cursor: pointer;
-    }
-
-    .master-actions {
-      display: flex;
-      gap: 10px;
-      border-left: 1px solid var(--border);
-      padding-left: 20px;
-    }
-
-    .btn-sustain-mini {
-      padding: 6px 12px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--border);
-      color: #777;
-      border-radius: 4px;
-      font-size: 9px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: all 0.3s;
-    }
-
-    .btn-sustain-mini.on {
-      background: var(--accent);
-      color: white;
-      border-color: var(--accent);
-      box-shadow: 0 0 10px var(--accent);
-    }
-
-    .btn-upload-mini {
-      background: var(--secondary);
-      border: none;
-      color: white;
-      padding: 6px 12px;
-      border-radius: 4px;
-      font-size: 9px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    .master-midi {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: rgba(0,0,0,0.3);
-      padding: 4px 12px;
-      border-radius: 20px;
-      border: 1px solid var(--border);
-    }
-
-    .midi-led {
-      width: 6px;
-      height: 6px;
-      background: #333;
-      border-radius: 50%;
-    }
-
-    .midi-led.active {
-      background: var(--primary);
-      box-shadow: 0 0 8px var(--primary);
-    }
-
-    .midi-msg {
-      font-size: 9px;
-      font-family: monospace;
-      color: #888;
-    }
-
-    /* Layout Base */
-    .content {
-      display: block;
-      flex-grow: 1;
-      overflow-y: auto;
-    }
-
-    /* Layers Area */
-    .layers-area {
-      padding: 30px;
-      overflow-y: auto;
-    }
-
-    .area-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 30px;
-    }
-
-    .area-header h2 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 300;
-    }
-
-    .btn-add {
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--primary);
-      color: var(--primary);
-      padding: 8px 20px;
-      border-radius: 30px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: 0.3s;
-    }
-
-    .btn-add:hover {
-      background: var(--primary);
-      color: #000;
-      box-shadow: 0 0 20px var(--primary);
-    }
-
-    .layers-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 20px;
-    }
-
-    .layer-card {
-      border-radius: 12px;
-      position: relative;
-      transition: all 0.3s;
-      border: 1px solid var(--border);
-    }
-
-    .layer-card:hover {
-      border-color: var(--primary);
-      background: rgba(25, 25, 45, 0.9);
-      transform: translateY(-5px);
-    }
-
-    .layer-card.disabled {
-      opacity: 0.4;
-      filter: grayscale(1);
-    }
-
-    .layer-header {
-      padding: 15px;
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .layer-id {
-      background: var(--border);
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: bold;
-    }
-
-    .layer-name {
-      background: transparent;
-      border: none;
-      color: white;
-      font-weight: bold;
-      outline: none;
-      flex-grow: 1;
-    }
-
-    .icon-btn {
-      background: transparent;
-      border: none;
-      color: #666;
-      cursor: pointer;
-      padding: 5px;
-    }
-
-    .icon-btn:hover { color: var(--primary); }
-    .icon-btn.delete:hover { color: var(--accent); }
-
-    .layer-body {
-      padding: 20px;
-    }
-
-    .patch-selector { margin-bottom: 20px; }
-    .patch-selector label { display: block; font-size: 11px; color: #666; margin-bottom: 8px; }
-
-    .subir-timbre-btn {
-       margin-top: 10px;
+    /* MIXER PROFISSIONAL - PADRÃO ESTÚDIO PRO-MAX */
+    .mixer-view { 
+       display: flex; 
+       flex: 1; 
+       padding: 0; /* PADDING REMOVIDO PARA GANHO DE ESPAÇO */
+       gap: 10px; 
+       height: 100%;
        width: 100%;
-       background: rgba(0, 242, 255, 0.05);
-       border: 1px dashed rgba(0, 242, 255, 0.2);
-       color: var(--primary);
-       padding: 6px;
-       border-radius: 4px;
-       font-size: 11px;
-       font-weight: bold;
-       cursor: pointer;
+       background: radial-gradient(circle at center, rgba(30,30,40,1) 0%, rgba(10,10,15,1) 100%);
+       overflow: hidden;
+       align-items: stretch;
+    }
+    .mixer-scroll { 
+       display: flex; 
+       gap: 12px; 
+       flex: 1;
+       height: 100%;
+       overflow-x: auto; 
+       overflow-y: hidden;
+       align-items: stretch;
+       padding: 5px;
     }
 
-    .sf-badge {
-       font-size: 9px;
-       color: #666;
-       margin-top: 5px;
-       font-family: monospace;
+    /* Strip de Canal Estilo Hardware */
+    .mixer-strip { 
+       flex: 0 0 85px; 
+       background: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+       backdrop-filter: blur(10px);
+       border: 1px solid rgba(255,255,255,0.1);
+       border-radius: 12px; 
+       display: flex; 
+       flex-direction: column; 
+       padding: 8px 0; 
+       gap: 5px;
+       height: 100%;
+       min-height: 0;
+       position: relative;
+       transition: all 0.3s ease;
+    }
+    .mixer-strip.master { 
+       flex: 0 0 100px; 
+       border: 1px solid rgba(0, 242, 255, 0.3);
+       background: linear-gradient(180deg, rgba(0, 242, 255, 0.05) 0%, rgba(0,0,0,0.5) 100%);
     }
 
-    .custom-select {
-      width: 100%;
-      background: rgba(0,0,0,0.3);
-      border: 1px solid var(--border);
-      color: #fff;
-      padding: 10px;
-      border-radius: 6px;
-    }
-
-    .layer-controls {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .control-group {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-    }
-
-    .control-group label { width: 50px; font-size: 11px; color: #777; }
-    .control-group input { flex-grow: 1; accent-color: var(--primary); }
-    .control-group.accent input { accent-color: var(--accent); }
-    .val { width: 35px; font-size: 11px; text-align: right; font-family: monospace; color: var(--primary); }
-
-    .input-with-learn {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-grow: 1;
-    }
-
-    .learn-btn {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #555;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      font-size: 12px;
-      transition: all 0.3s;
-    }
-
-    .learn-btn:hover {
-      color: var(--primary);
-      border-color: var(--primary);
-    }
-
-    .learn-btn.active {
-      background: var(--primary);
-      color: #000;
-      box-shadow: 0 0 15px var(--primary);
-      animation: pulse-midi 1s infinite;
-    }
-
-    @keyframes pulse-midi {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-      100% { transform: scale(1); }
-    }
-
-    .empty-state {
-      padding: 60px;
-      text-align: center;
-      color: #555;
-      border: 1px dashed var(--border);
-      border-radius: 20px;
-    }
-
-    .warning-banner {
-      background: rgba(255, 174, 0, 0.1);
-      color: #ffae00;
-      padding: 12px 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      border: 1px solid rgba(255, 174, 0, 0.2);
-      font-size: 13px;
-    }
-
-    .layer-card.learning {
-      box-shadow: 0 0 30px rgba(0, 242, 255, 0.1);
-      border-color: var(--primary);
-    }
-
-    /* Mixer Board Redesign */
-    .mixer-board {
-      display: flex;
-      gap: 20px;
-      padding: 40px;
-      overflow-x: auto;
-      border-radius: 20px;
-      min-height: 500px;
-      background: rgba(0,0,0,0.4);
-      border: 1px solid var(--border);
-    }
-
-    @media (max-width: 600px) {
-      .mixer-board {
-        padding: 20px 10px;
-        min-height: 400px;
-        gap: 10px;
-      }
-      
-      .mixer-channel {
-        min-width: 80px;
-        padding: 15px 10px;
-      }
-
-      .slider-wrapper {
-        height: 200px;
-      }
-
-      .mixer-slider {
-        height: 180px;
-      }
-    }
-    
-    .mixer-channel {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      min-width: 100px;
-      padding: 25px 15px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.2) 100%);
-      border: 1px solid rgba(255,255,255,0.05);
-      border-radius: 12px;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .mixer-channel.muted-state {
-      opacity: 0.6;
-      filter: grayscale(0.5);
-    }
-
-    .slider-wrapper {
-      position: relative;
-      height: 280px;
-      width: 60px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(0,0,0,0.3);
-      border-radius: 30px;
-      border: 1px solid rgba(255,255,255,0.05);
-      box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
-      overflow: hidden;
-    }
-
-    .mixer-slider {
-      appearance: none;
-      width: 230px; /* Horizontal width that becomes height after rotation */
-      height: 6px;
-      background: rgba(255,255,255,0.05);
-      border-radius: 10px;
-      outline: none;
-      transform: rotate(-90deg); /* Rotate to vertical */
-      cursor: pointer;
-    }
-
-    .mixer-slider::-webkit-slider-runnable-track {
-      background: linear-gradient(to right, var(--secondary), var(--primary));
-      border-radius: 10px;
-      height: 6px;
-    }
-
-    .mixer-slider::-webkit-slider-thumb {
-      appearance: none;
-      width: 40px; /* Knob height (horizontal before rotation) */
-      height: 24px; /* Knob width (vertical before rotation) */
-      background: #eee;
-      border: 2px solid #999;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-top: -9px; /* Align with track */
-      box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 2px 2px white;
-      background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px);
-    }
-
-    .mixer-toggle {
-      width: 60px;
-      height: 30px;
-      border: none;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 900;
-      cursor: pointer;
-      transition: all 0.3s;
-      background: #4a0000;
-      color: #ff4d4d;
-      border: 1px solid #ff4d4d22;
-      box-shadow: 0 0 10px rgba(255, 77, 77, 0.1);
-    }
-
-    .mixer-toggle.active {
-      background: #003a20;
-      color: #39ff14;
-      border-color: #39ff1444;
-      box-shadow: 0 0 15px rgba(57, 255, 20, 0.2);
-    }
-
-    .channel-info {
-       text-align: center;
+    .strip-header {
        display: flex;
        flex-direction: column;
-       gap: 5px;
+       align-items: center;
+       gap: 2px;
+       padding: 0 4px;
+    }
+    .ch-idx-badge { 
+       background: var(--primary); 
+       color: #000; 
+       font-size: 8px; 
+       font-weight: 900; 
+       padding: 1px 4px; 
+       border-radius: 3px;
+       margin-bottom: 2px;
+    }
+    .strip-label { 
+       font-size: 9px; 
+       font-weight: 700; 
+       color: #eee; 
+       text-align: center; 
+       white-space: nowrap; 
+       overflow: hidden; 
+       text-overflow: ellipsis;
+       text-transform: uppercase;
+       letter-spacing: 0.5px;
     }
 
-    .channel-label { 
-      font-size: 12px; 
-      font-weight: 800; 
-      color: #fff;
-      max-width: 90px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    .inst-icon-wrap {
+       width: 40px;
+       height: 40px;
+       background: rgba(0,0,0,0.3);
+       border-radius: 8px;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       margin: 5px auto;
+       font-size: 18px;
+       border: 1px solid rgba(255,255,255,0.05);
     }
 
-    .ch-id { 
-      font-size: 9px; 
+    /* Fader e VU Meter */
+    .fader-vu-container {
+       flex: 1;
+       display: flex;
+       justify-content: center;
+       gap: 8px;
+       padding: 10px 0;
+       min-height: 0;
+    }
+
+    .fader-track { 
+       width: 30px; 
+       position: relative; 
+       display: flex; 
+       justify-content: center; 
+       height: 100%;
+    }
+    .vertical-fader { 
+       width: 30px; 
+       height: 100%;
+       margin: 0;
+       appearance: slider-vertical;
+       cursor: pointer;
+       filter: drop-shadow(0 0 5px rgba(0,0,0,0.5));
+    }
+
+    .vu-meter-pro {
+       width: 6px;
+       height: 100%;
+       background: #111;
+       border-radius: 3px;
+       display: flex;
+       flex-direction: column-reverse;
+       gap: 1px;
+       padding: 1px;
+       border: 1px solid rgba(255,255,255,0.05);
+    }
+    .vu-seg {
+       width: 100%;
+       flex: 1;
+       border-radius: 1px;
+       background: #222;
+       transition: background 0.1s ease;
+    }
+    .vu-seg.active-g { background: #00ff00; box-shadow: 0 0 5px #00ff00; }
+    .vu-seg.active-y { background: #ffff00; box-shadow: 0 0 5px #ffff00; }
+    .vu-seg.active-r { background: #ff0000; box-shadow: 0 0 5px #ff0000; }
+
+    .db-val { 
+       font-family: 'Courier New', monospace;
+       font-size: 10px; 
+       color: var(--primary); 
+       background: rgba(0,0,0,0.5);
+       padding: 2px 4px;
+       border-radius: 3px;
+       text-align: center;
+       margin: 0 5px;
+    }
+
+    .strip-footer { 
+       display: flex; 
+       justify-content: center;
+       gap: 5px; 
+       padding: 5px;
+    }
+    .btn-pro {
+       flex: 1;
+       height: 24px;
+       font-size: 10px;
+       font-weight: 900;
+       border-radius: 4px;
+       border: none;
+       background: rgba(255,255,255,0.05);
+       color: #666;
+       cursor: pointer;
+       transition: all 0.2s;
+    }
+    /* MODAL DE CÓPIA PRO */
+    .copy-overlay {
+       position: fixed;
+       top: 0; left: 0; right: 0; bottom: 0;
+       background: rgba(0,0,0,0.85);
+       backdrop-filter: blur(15px);
+       z-index: 9999;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+    }
+    .copy-modal {
+       width: 85%;
+       max-width: 400px;
+       padding: 30px;
+       border-radius: 20px;
+       text-align: center;
+       border: 1px solid rgba(0, 242, 255, 0.3);
+       box-shadow: 0 0 50px rgba(0, 242, 255, 0.2);
+    }
+    .copy-modal i { font-size: 40px; color: var(--primary); margin-bottom: 20px; }
+    .copy-modal h3 { font-size: 18px; margin-bottom: 10px; color: #fff; }
+    .copy-modal p { font-size: 12px; color: var(--text-muted); margin-bottom: 25px; }
+    
+    .pro-progress-container {
+       width: 100%;
+       height: 6px;
+       background: rgba(255,255,255,0.05);
+       border-radius: 3px;
+       overflow: hidden;
+       margin-bottom: 10px;
+    }
+    .pro-progress-bar {
+       height: 100%;
+       background: linear-gradient(90deg, var(--primary), var(--secondary));
+       box-shadow: 0 0 10px var(--primary);
+       transition: width 0.3s ease;
+    }
+    .progress-info { font-size: 14px; font-weight: 800; color: var(--primary); }
+
+    /* New Premium Library Styling */
+    .library-view { padding: 30px; height: 100%; overflow-y: auto; background: radial-gradient(circle at top right, rgba(0,242,255,0.05), transparent); }
+    .panel-header h3 { font-size: 18px; letter-spacing: 1px; color: #fff; font-weight: 800; }
+    
+    .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; margin-top: 30px; }
+    
+    .glass-card { 
+       background: rgba(255,255,255,0.03); 
+       backdrop-filter: blur(10px); 
+       border: 1px solid rgba(255,255,255,0.08); 
+       border-radius: 12px;
+       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .sf-card-premium { 
+       display: flex; 
+       align-items: center; 
+       justify-content: space-between; 
+       padding: 16px;
+    }
+    .sf-card-premium:hover { 
+       background: rgba(255,255,255,0.06); 
+       border-color: var(--primary); 
+       transform: translateY(-2px);
+       box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+    }
+
+    .sf-main-info { display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0; }
+    .sf-status-icon { 
+       width: 44px; height: 44px; 
+       background: rgba(0,0,0,0.4); 
+       border-radius: 10px; 
+       display: flex; align-items: center; justify-content: center;
+       border: 1px solid var(--border);
+       color: #666;
+    }
+    .sf-status-icon.active { 
+       color: var(--primary); 
+       background: rgba(0,242,255,0.08); 
+       border-color: rgba(0,242,255,0.2);
+       box-shadow: 0 0 15px rgba(0,242,255,0.1);
+    }
+
+    .sf-text { display: flex; flex-direction: column; min-width: 0; }
+    .sf-filename { color: #fff; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sf-meta { font-size: 9px; color: var(--text-muted); font-weight: 800; letter-spacing: 0.5px; margin-top: 2px; }
+
+    .btn-sf-delete { 
+       background: rgba(255,51,51,0.1); 
+       border: 1px solid rgba(255,51,51,0.2); 
+       color: #ff3333; 
+       width: 38px; height: 38px; 
+       border-radius: 10px; 
+       display: flex; align-items: center; justify-content: center;
+       cursor: pointer;
+       transition: all 0.2s;
+    }
+    .btn-sf-delete:hover { background: #ff3333; color: #fff; transform: scale(1.1); }
+
+    .library-empty-state { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; padding: 100px 0; color: #444; }
+    .empty-icon-circle { width: 80px; height: 80px; border-radius: 50%; border: 2px dashed rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 30px; margin-bottom: 20px; }
+    .library-empty-state h4 { color: #888; margin-bottom: 8px; font-weight: 800; }
+    .library-empty-state p { font-size: 12px; }
+
+    /* PREMIUM SELECT STYLING */
+    .t-selector-wrapper { position: relative; width: 100%; max-width: 180px; margin-top: 4px; }
+    .premium-select { 
+       width: 100%; 
+       background: rgba(255,255,255,0.05); 
+       border: 1px solid rgba(0,242,255,0.2); 
+       color: var(--primary); 
+       font-size: 11px; 
+       font-weight: 700; 
+       padding: 6px 30px 6px 10px; 
+       border-radius: 6px; 
+       appearance: none; 
+       outline: none;
+       cursor: pointer;
+       text-transform: uppercase;
+    }
+    .premium-select option { background: #0a0a15; color: #fff; }
+    .select-arrow { 
+       position: absolute; right: 10px; top: 50%; transform: translateY(-50%); 
+       font-size: 9px; color: var(--primary); pointer-events: none; 
+    }
+
+    /* FOOTER CONTROLS */
+    .btn-footer-toggle { 
+       background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); 
+       color: #fff; border-radius: 6px; padding: 6px 12px; display: flex; align-items: center; gap: 8px;
+       cursor: pointer; transition: all 0.2s;
+    }
+    .btn-footer-toggle i { color: var(--primary); font-size: 14px; }
+    .btn-footer-toggle span { font-size: 9px; font-weight: 800; }
+    .btn-footer-toggle.active { background: var(--primary); color: #000; border-color: var(--primary); }
+    .btn-footer-toggle.active i { color: #000; }
+
+    .midi-status { display: flex; align-items: center; gap: 8px; font-size: 9px; font-weight: 800; color: #444; }
+    .midi-status i { font-size: 12px; }
+    .midi-status.connected { color: #32cd32; }
+    .midi-status.connected i { text-shadow: 0 0 10px #32cd32; }
+
+    .animate-up { animation: slideUp 0.3s ease-out; }
+    @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .header-actions { display: flex; align-items: center; gap: 15px; }
+    .layer-name-input { 
+       background: transparent; 
+       border: none; 
+       color: #fff; 
+       font-size: 14px; 
+       font-weight: 800; 
+       width: 100%; 
+       outline: none;
+       padding: 0;
+       margin: 0;
+       cursor: text;
+    }
+    .layer-name-input:focus { color: var(--primary); }
+    .btn-live-mode { 
+      background: rgba(0, 242, 255, 0.06); 
       color: var(--primary); 
-      letter-spacing: 1px;
-      font-weight: 900;
-      opacity: 0.7;
-    }
-
-    /* Piano */
-    .piano-footer {
-      height: 140px;
-      background: #000;
-      overflow-x: auto;
-      overflow-y: hidden;
-      display: flex;
-      align-items: flex-end;
-      border-top: 2px solid var(--primary);
-      box-shadow: 0 -5px 25px rgba(0, 242, 255, 0.2);
-    }
-
-    .piano-container {
-      display: flex;
-      height: 100%;
-      padding-bottom: 5px;
-      min-width: max-content; /* Force container to be as wide as keys */
-    }
-
-    .key {
-      flex: 0 0 45px; /* Fixed width for white keys to prevent squishing */
-      background: white;
-      height: 100%;
-      border-radius: 0 0 4px 4px;
-      position: relative;
+      border: 1px solid var(--primary); 
+      padding: 5px 12px; 
+      border-radius: 4px; 
+      font-size: 9px; 
+      font-weight: 700; 
       cursor: pointer;
-      border: 1px solid #ccc;
-      transition: background 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .bpm-control { background: #000; padding: 5px 10px; border-radius: 4px; border: 1px solid var(--border); }
+    .bpm-val { font-family: 'JetBrains Mono', monospace; font-weight: bold; color: #fff; font-size: 11px; }
+
+    .icon-btn-circle { background: transparent; border: 1px solid var(--border); color: #666; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+    /* Content Area */
+    .content-area { 
+      flex: 1; 
+      padding: 0; 
+      overflow: hidden; /* MUDADO PARA HIDDEN PARA CONTROLAR SCROLL NOS FILHOS */
+      display: flex; 
+      flex-direction: column;
+      min-width: 0;
+    }
+    
+    .mixer-view, .home-grid { 
+      padding: 20px; 
+      flex: 1; 
+      overflow-y: auto;
+      min-width: 0;
     }
 
-    .key.black {
-      background: #111;
-      flex: 0 0 30px;
-      height: 60%;
-      z-index: 2;
-      margin-left: -15px;
-      margin-right: -15px;
-      border-color: #333;
+    /* Home Grid Responsivo */
+    .home-grid { 
+      display: grid; 
+      grid-template-columns: 1fr 350px; 
+      gap: 20px; 
+      height: 100%; 
     }
 
-    .key.active {
+    @media (max-width: 1200px) {
+       .home-grid { grid-template-columns: 1fr; }
+       .side-panels { display: grid !important; grid-template-columns: 1fr 1fr; gap: 20px; }
+    }
+    @media (max-width: 900px) {
+       .side-panels { grid-template-columns: 1fr; }
+    }
+
+    .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .panel-header h3 { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; margin: 0; text-transform: uppercase; }
+
+    .timbres-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .timbre-card {
+      background: var(--panel-bg);
+      border-left: 3px solid var(--accent, var(--primary));
+      border-radius: 6px;
+      padding: 10px 15px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+      transition: 0.2s;
+    }
+    
+    .timbre-card.inactive { opacity: 0.35; filter: grayscale(0.8); }
+    .t-idx { position: absolute; left: 6px; top: 10px; font-size: 8px; font-weight: 900; color: var(--accent); opacity: 0.4; }
+    .t-img { width: 45px; height: 45px; background: rgba(0,0,0,0.3); border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--border); font-size: 20px; cursor: pointer; }
+    .t-img i { text-shadow: 0 0 10px currentColor; }
+
+    .t-main { flex: 1; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+    .t-title { display: flex; align-items: center; gap: 8px; }
+    
+    .t-selector-btn { 
+       display: flex; 
+       align-items: center; 
+       gap: 6px; 
+       background: rgba(255,255,255,0.03);
+       border: 1px solid rgba(255,255,255,0.05);
+       padding: 8px 10px;
+       border-radius: 4px;
+       cursor: pointer;
+       width: fit-content;
+       max-width: 100%;
+       margin-top: 2px;
+    }
+    .t-selector-btn:active { background: rgba(0,242,255,0.2); }
+    .t-inst-name { font-size: 11px; color: var(--primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
+    .icon-mini { font-size: 8px; color: var(--primary); }
+
+    .mini-slider { width: 100%; height: 3px; appearance: none; background: rgba(255,255,255,0.05); border-radius: 2px; outline: none; }
+    .mini-slider::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; background: #fff; border-radius: 50%; cursor: pointer; border: 2px solid var(--accent); }
+
+    .t-actions { display: flex; align-items: center; gap: 12px; border-left: 1px solid var(--border); padding-left: 12px; }
+    .t-db { font-size: 8px; font-family: monospace; color: var(--text-muted); min-width: 30px; text-align: right; }
+    
+    .t-btns-group { display: flex; gap: 5px; align-items: center; }
+
+    .btn-action-small {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--primary);
+      width: 28px; height: 28px;
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .btn-delete {
+      background: rgba(255, 51, 51, 0.1);
+      border: 1px solid rgba(255, 51, 51, 0.2);
+      color: #ff3333;
+      width: 28px; height: 28px;
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .btn-delete:hover { background: #ff3333; color: #fff; }
+
+    .t-toggles { display: flex; gap: 3px; }
+    .btn-s, .btn-m { background: #1a1a2a; border: 1px solid var(--border); color: #444; width: 26px; height: 26px; border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 9px; }
+    .btn-s.active { color: #fff; background: #ffaa00; border-color: #ffaa00; }
+    .btn-m.active { color: #fff; background: #ff3333; border-color: #ff3333; }
+
+    /* Right Panels Redesign */
+    .effects-panel, .info-panel { 
+      padding: 25px; 
+      border-radius: 12px; 
+      border: 1px solid var(--border); 
+      background: linear-gradient(145deg, rgba(18, 18, 30, 0.8) 0%, rgba(10, 10, 15, 0.8) 100%); 
+      margin-bottom: 25px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .effect-item { 
+      display: flex; 
+      align-items: center; 
+      gap: 15px; 
+      background: rgba(0,0,0,0.25); 
+      padding: 12px; 
+      border-radius: 8px; 
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+    .fx-toggle { background: #12121e; border: 1px solid var(--border); color: #333; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 10px; }
+    .fx-toggle.active { color: var(--primary); border-color: var(--primary); }
+    .fx-name { flex: 1; font-weight: 700; font-size: 10px; }
+    .knob-svg { width: 22px; height: 22px; border: 1px solid var(--primary); border-radius: 50%; position: relative; opacity: 0.5; }
+    .knob-svg::after { content: ''; position: absolute; width: 1px; height: 7px; background: var(--primary); left: 50%; top: 2px; transform: translateX(-50%) rotate(40deg); transform-origin: bottom; }
+    .fx-val { font-size: 9px; color: var(--text-muted); width: 30px; text-align: right; }
+
+    .sf-file { border: 1px solid var(--border); padding: 10px; border-radius: 5px; display: flex; align-items: center; gap: 10px; margin-top: 10px; background: rgba(0,0,0,0.1); }
+    .sf-name { font-size: 10px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .sf-size { font-size: 8px; color: var(--text-muted); }
+
+    /* ==============================
+       MIXER VIEW - Console Style
+       ============================== */
+    .mixer-view { height: 100%; }
+    .mixer-scroll { 
+      display: flex; 
+      gap: 12px; 
+      height: 100%; 
+      overflow-x: auto; 
+      padding: 0 0 15px 0;
+      align-items: flex-start;
+    }
+
+    .mixer-strip { 
+      width: 100px;
+      min-height: 350px;
+      background: linear-gradient(180deg, rgba(20,20,32,1) 0%, rgba(12,12,20,1) 100%); 
+      border-radius: 12px; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center;
+      padding: 12px 8px; 
+      border: 1px solid var(--border); 
+      flex-shrink: 0; 
+      gap: 8px;
+    }
+    .mixer-strip.master { 
+      width: 90px;
+      border-color: rgba(0, 242, 255, 0.3); 
+      background: linear-gradient(180deg, rgba(0,30,40,1) 0%, rgba(0,15,20,1) 100%);
+    }
+
+    .strip-label { 
+      font-size: 9px; font-weight: 900; 
+      color: var(--primary); 
+      letter-spacing: 2px; 
+      text-align: center;
+    }
+
+    .strip-header { 
+      display: flex; 
+      flex-direction: row;
+      align-items: center; 
+      gap: 6px; 
+      width: 100%;
+      justify-content: center;
+    }
+    .ch-idx { 
+      font-size: 9px; font-weight: 900; 
+      background: var(--accent); color: #000; 
+      padding: 2px 5px; border-radius: 3px; 
+      flex-shrink: 0;
+    }
+    .ch-name { 
+      font-size: 10px; font-weight: 700; 
+      overflow: hidden; text-overflow: ellipsis; 
+      white-space: nowrap; 
+      max-width: 65px;
+    }
+
+    .inst-icon-wrap { 
+      width: 52px; height: 52px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      font-size: 22px; 
+      cursor: pointer;
+      background: rgba(255,255,255,0.04);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      transition: all 0.3s;
+    }
+    .inst-icon-wrap i { text-shadow: 0 0 12px currentColor; }
+    .inst-icon-wrap:hover { border-color: var(--primary); background: rgba(0,242,255,0.08); }
+
+    /* Fader Row (icon + fader + vu) */
+    .fader-row {
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      gap: 6px;
+      flex: 1;
+      width: 100%;
+      min-height: 180px;
+    }
+
+    /* Fader track - the central rail */
+    .fader-track {
+      flex: 1;
+      position: relative;
+      background: linear-gradient(180deg, #111 0%, #0a0a0a 100%);
+      border-radius: 6px;
+      border: 1px solid #222;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .fader-rail {
+      position: absolute;
+      left: 50%; top: 10px; bottom: 10px;
+      width: 4px;
+      background: linear-gradient(180deg, #333 0%, #111 100%);
+      border-radius: 2px;
+      transform: translateX(-50%);
+    }
+    .vertical-fader {
+      position: absolute;
+      left: 50%;
+      top: 0; bottom: 0;
+      width: 100%;
+      transform: translateX(-50%);
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+      /* Writing mode makes it native vertical */
+      writing-mode: vertical-lr;
+      direction: rtl;
+      height: 100%;
+      z-index: 10;
+    }
+    .vertical-fader::-webkit-slider-thumb {
+      appearance: none;
+      width: 56px; height: 22px;
+      background: linear-gradient(90deg, #555 0%, #333 40%, #444 60%, #555 100%);
+      border-radius: 4px;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.15);
+      border: 1px solid #111;
+      position: relative;
+    }
+    .vertical-fader::-webkit-slider-runnable-track {
+      background: transparent;
+    }
+
+    /* VU Meter */
+    .vu-bar {
+      width: 10px;
+      background: #080808;
+      border-radius: 3px;
+      border: 1px solid #1a1a1a;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 2px;
+      padding: 3px 2px;
+      overflow: hidden;
+    }
+    .vu-seg { 
+      flex: 1; 
+      border-radius: 1px; 
+      background: #1a1a1a;
+    }
+    .vu-seg.g { background: #22aa22; box-shadow: 0 0 4px #22aa22; }
+    .vu-seg.y { background: #ccaa00; box-shadow: 0 0 4px #ccaa00; }
+    .vu-seg.r { background: #cc2222; box-shadow: 0 0 4px #cc2222; }
+
+    .db-val { 
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; 
+      color: var(--text-muted); 
+      background: #000; 
+      padding: 3px 6px; 
+      border-radius: 4px;
+      text-align: center;
+      border: 1px solid var(--border);
+      width: 100%;
+    }
+
+    .strip-btns { display: flex; gap: 5px; width: 100%; }
+    .btn-s, .btn-m { 
+      flex: 1; 
+      height: 28px; 
+      background: rgba(255,255,255,0.04); 
+      border: 1px solid rgba(255,255,255,0.1); 
+      color: #555; 
+      border-radius: 5px; 
+      font-weight: 900; 
+      cursor: pointer; 
+      font-size: 10px;
+      letter-spacing: 1px;
+      transition: 0.15s;
+    }
+    .btn-s.active { color: #000; background: #ffaa00; border-color: #ffaa00; box-shadow: 0 0 10px rgba(255,170,0,0.4); }
+    .btn-m.active { color: #fff; background: #cc2222; border-color: #cc2222; box-shadow: 0 0 10px rgba(200,34,34,0.4); }
+
+    .btn-limiter {
+      width: 100%;
+      padding: 5px;
+      background: rgba(0,242,255,0.08);
+      border: 1px solid rgba(0,242,255,0.3);
+      color: var(--primary);
+      border-radius: 5px;
+      font-size: 8px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      cursor: pointer;
+    }
+
+    .add-timbre-strip {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 350px;
+      padding: 12px;
+    }
+    .add-timbre-strip button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,242,255,0.04);
+      border: 1px dashed rgba(0,242,255,0.2);
+      color: var(--text-muted);
+      border-radius: 12px;
+      padding: 20px 15px;
+      font-size: 9px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .add-timbre-strip button:hover { border-color: var(--primary); color: var(--primary); }
+    .add-timbre-strip button i { font-size: 20px; }
+
+    /* Visual Keyboard - Redesign Responsivo */
+    .visual-keyboard { 
+      height: 130px; 
+      background: #000; 
+      display: flex; 
+      border-top: 2px solid var(--primary); 
+      box-shadow: 0 -8px 25px rgba(0, 242, 255, 0.12);
+      flex-shrink: 0;
+    }
+    .piano-container { 
+      display: flex; 
+      width: 100%;
+      height: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding: 4px 10px;
+    }
+    .piano-container::-webkit-scrollbar { display: none; }
+    .key { 
+      flex: 0 0 36px; 
+      height: 90%;
+      background: linear-gradient(180deg, #f8f8f8 0%, #e8e8e8 80%, #ccc 100%);
+      border: 1px solid #aaa; 
+      border-radius: 0 0 5px 5px; 
+      margin: 0 1px; 
+      cursor: pointer; 
+      box-shadow: inset 0 -5px 8px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.5);
+      transition: all 0.08s ease;
+      align-self: flex-start;
+    }
+    .key.black { 
+      background: linear-gradient(180deg, #333 0%, #000 100%);
+      z-index: 5; 
+      height: 57%; 
+      flex: 0 0 22px;
+      margin-left: -11px; 
+      margin-right: -11px; 
+      border-color: #000;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.9);
+    }
+    .key.active { 
+      background: var(--primary); 
+      box-shadow: 0 0 20px var(--primary), inset 0 0 8px rgba(255,255,255,0.3);
+      transform: translateY(2px);
+    }
+    .key.black.active {
       background: var(--primary);
       box-shadow: 0 0 20px var(--primary);
     }
 
-    /* Glass Effects */
-    .glass {
-      background: var(--panel-bg);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+    /* Bottom Status Bar - Centralizado e Responsivo */
+    .status-bar { 
+      height: 50px; 
+      background: rgba(5, 5, 10, 0.95); 
+      border-top: 1px solid var(--border); 
+      display: flex; 
+      align-items: center; 
+      padding: 0 20px; 
+      gap: 10px;
+      flex-shrink: 0;
     }
+    .s-left, .s-right { 
+      display: flex; 
+      align-items: center; 
+      gap: 10px; 
+      min-width: 200px;
+      font-size: 10px;
+    }
+    .s-left .label { color: var(--text-muted); font-size: 8px; text-transform: uppercase; }
+    .s-left .val { font-weight: 700; color: #fff; }
+    .s-left .arrows i { color: var(--text-muted); cursor: pointer; padding: 0 4px; }
+    .s-center { 
+      flex: 1; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center;
+      gap: 12px; 
+    }
+    .s-right { justify-content: flex-end; }
+    .midi-status { 
+      display: flex; 
+      align-items: center; 
+      gap: 8px; 
+      padding: 5px 12px; 
+      border-radius: 15px; 
+      background: rgba(0,0,0,0.5); 
+      border: 1px solid var(--border);
+    }
+    .midi-status.connected { border-color: #32cd32; }
+    .midi-status .m-label { font-size: 8px; font-weight: 700; color: #32cd32; }
+    .midi-status .m-dev { font-size: 8px; color: var(--text-muted); }
+    .m-info { display: flex; flex-direction: column; }
+    .btn-plus {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(0,242,255,0.1);
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    .bpm-tap { 
+      background: #000; 
+      border: 1px solid var(--border);
+      border-radius: 6px; 
+      padding: 4px 10px; 
+      text-align: center;
+      cursor: pointer;
+    }
+    .tap-label { display: block; font-size: 7px; color: var(--text-muted); letter-spacing: 1px; }
+    .tap-val { display: block; font-size: 11px; font-weight: 700; font-family: monospace; color: var(--primary); }
+
+    .animate-in { animation: fadeIn 0.3s ease; }
+
+    /* Premium Buttons Globally */
+    .btn-ghost, button {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-ghost:hover, button:hover:not(.nav-item) {
+      background: rgba(0, 242, 255, 0.1);
+      border-color: var(--primary);
+      box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+      transform: translateY(-1px);
+    }
+    .btn-ghost:active { transform: scale(0.95); }
+
+    .btn-live-mode { 
+      background: linear-gradient(135deg, var(--primary) 0%, #00a2ff 100%) !important;
+      color: #000 !important;
+      border: none !important;
+      font-weight: 900 !important;
+      box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+    }
+    
+    /* SF2 Loader styling enhancement */
+    .sf-file {
+       background: rgba(0,0,0,0.4) !important;
+       border: 1px solid rgba(0, 242, 255, 0.15) !important;
+       padding: 15px !important;
+    }
+    .sf-file h3 { color: var(--primary); margin-bottom: 10px; font-size: 11px; }
+
+    /* MODAL DE ÍCONES PREMIUM - FIX DEFINITIVO */
+    .modal-overlay-premium {
+       position: fixed;
+       top: 0; left: 0; right: 0; bottom: 0;
+       background: rgba(0,0,0,0.85);
+       backdrop-filter: blur(20px);
+       z-index: 10000;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       padding: 20px;
+       animation: fadeIn 0.3s ease;
+    }
+    .modal-content-premium {
+       width: 100%;
+       max-width: 650px;
+       max-height: 85vh;
+       background: linear-gradient(145deg, rgba(20,20,30,0.95), rgba(10,10,15,0.98));
+       border: 1px solid rgba(255,255,255,0.1);
+       border-radius: 28px;
+       display: flex;
+       flex-direction: column;
+       overflow: hidden;
+       box-shadow: 0 30px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
+    }
+    .modal-header-premium {
+       padding: 25px 35px;
+       border-bottom: 1px solid rgba(255,255,255,0.08);
+       display: flex;
+       justify-content: space-between;
+       align-items: center;
+       background: rgba(255,255,255,0.02);
+    }
+    .header-titles h4 { font-size: 18px; font-weight: 900; color: #fff; margin: 0; letter-spacing: 0.5px; }
+    .active-layer-name { font-size: 12px; color: var(--primary); font-weight: 700; text-transform: uppercase; margin-top: 4px; display: block; }
+    
+    .close-btn-premium { 
+       width: 40px; height: 40px; border-radius: 50%; background: rgba(255,50,50,0.1); border: 1px solid rgba(255,50,50,0.2); color: #ff5555; 
+       cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;
+    }
+    .close-btn-premium:hover { background: #ff3333; color: #fff; transform: rotate(90deg); }
+
+    .assign-grid-pro {
+       padding: 30px;
+       display: grid;
+       grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+       gap: 20px;
+       overflow-y: auto;
+       flex: 1;
+       scrollbar-width: thin;
+       scrollbar-color: var(--primary) transparent;
+    }
+    .assign-card-pro {
+       background: rgba(255,255,255,0.04);
+       border: 1px solid rgba(255,255,255,0.06);
+       border-radius: 20px;
+       padding: 25px 15px;
+       display: flex;
+       flex-direction: column;
+       align-items: center;
+       cursor: pointer;
+       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+       text-align: center;
+       position: relative;
+    }
+    .assign-card-pro:hover {
+       background: rgba(255,255,255,0.1);
+       border-color: var(--icon-color);
+       transform: translateY(-5px) scale(1.02);
+       box-shadow: 0 15px 30px rgba(0,0,0,0.4), 0 0 20px -5px var(--icon-color);
+    }
+    .icon-box {
+       width: 55px;
+       height: 55px;
+       background: rgba(0,0,0,0.4);
+       border-radius: 16px;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       margin-bottom: 15px;
+       font-size: 28px;
+       color: var(--icon-color);
+       transition: all 0.4s;
+       border: 1px solid rgba(255,255,255,0.05);
+    }
+    .assign-card-pro:hover .icon-box { transform: scale(1.15) rotate(5deg); box-shadow: 0 0 25px var(--icon-color); }
+    
+    .inst-name { font-size: 13px; font-weight: 800; color: #fff; margin-bottom: 6px; display: block; }
+    .inst-cat { font-size: 9px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ==============================
+       RESPONSIVIDADE ANDROID
+       ============================== */
+    @media (max-width: 768px) {
+      /* Layout principal: sidebar EMBAIXO no mobile */
+      .main-layout {
+        flex-direction: column;
+      }
+      .side-nav {
+        width: 100%;
+        height: 56px;
+        flex-direction: row;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        padding: 0;
+        order: 10;
+        justify-content: space-around;
+      }
+      .nav-top, .nav-bottom { 
+        display: flex;
+        flex-direction: row;
+        gap: 0;
+        width: 100%;
+      }
+      .nav-bottom { width: auto; }
+      .nav-item {
+        flex: 1;
+        padding: 8px 5px;
+        border-left: none !important;
+        border-top: 2px solid transparent;
+      }
+      .nav-item.active { border-top: 2px solid var(--primary); border-left: none; }
+      .nav-item span { font-size: 6px; }
+      .nav-item i { font-size: 16px; }
+
+      .main-wrapper { min-height: 0; flex: 1; }
+      .main-header { height: 44px; padding: 0 12px; }
+      .p-name { font-size: 11px; }
+      .header-actions .btn-live-mode { padding: 5px 8px; font-size: 8px; }
+      .header-actions .btn-live-mode i { display: none; }
+      .bpm-control { display: none; }
+
+      .content-area { padding: 10px; }
+
+      /* Home: lista de timbres sem painel lateral */
+      .home-grid { 
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .side-panels { display: none; }
+      
+      /* Timbres mais compactos */
+      .timbre-card { padding: 8px 10px; gap: 8px; }
+      .t-name input { font-size: 12px; }
+
+      /* Teclado menor mas ainda funcional */
+      .visual-keyboard { height: 90px; }
+      .key { flex: 0 0 26px; }
+      .key.black { flex: 0 0 16px; margin-left: -8px; margin-right: -8px; }
+
+      /* Status bar oculta no mobile para ganhar espaço */
+      .status-bar { display: none !important; }
+
+      .s-center { flex: 0 0 100%; }
+      .s-center button { flex: 1; padding: 7px 10px; font-size: 9px; }
+    }
+
+    @media (max-width: 480px) {
+      .visual-keyboard { height: 75px; }
+      .key { flex: 0 0 20px; }
+      .key.black { flex: 0 0 12px; margin-left: -6px; margin-right: -6px; }
+      .main-header { display: none; }
+    }
+    /* BOTÃO FLUTUANTE IMERSIVO */
+    .btn-float-immersive {
+       position: fixed;
+       bottom: 20px;
+       right: 20px;
+       width: 45px;
+       height: 45px;
+       border-radius: 50%;
+       background: rgba(0, 242, 255, 0.1);
+       border: 1px solid rgba(0, 242, 255, 0.3);
+       color: var(--primary);
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       font-size: 18px;
+       cursor: pointer;
+       z-index: 10000;
+       backdrop-filter: blur(10px);
+       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+       box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+    .btn-float-immersive:hover { transform: scale(1.1); background: rgba(0, 242, 255, 0.2); }
+    .btn-float-immersive.active { 
+       bottom: auto; 
+       top: 10px; 
+       right: 10px; 
+       background: rgba(255,255,255,0.05); 
+       opacity: 0.5;
+    }
+    .btn-float-immersive.active:hover { opacity: 1; }
   `]
 })
 export class AppComponent {
@@ -1034,11 +1584,116 @@ export class AppComponent {
   masterVisible = signal(true);
 
   notes = Array.from({length: 88}, (_, i) => i + 21); // 88 keys Piano
+  
+  instrumentOptions = [
+    { id: 'piano', name: 'Grand Piano', iconClass: 'fa-solid fa-piano', color: '#00f2ff' },
+    { id: 'epiano', name: 'Electric Piano', iconClass: 'fa-solid fa-keyboard', color: '#8a2be2' },
+    { id: 'organ', name: 'Hammond Organ', iconClass: 'fa-solid fa-music', color: '#ff8c00' },
+    { id: 'church', name: 'Church Organ', iconClass: 'fa-solid fa-place-of-worship', color: '#fff' },
+    { id: 'sax', name: 'Saxophone', iconClass: 'fa-solid fa-sax-hot', color: '#ffd700' },
+    { id: 'ssax', name: 'Soprano Sax', iconClass: 'fa-solid fa-sax-hot', color: '#ffd700' },
+    { id: 'strings', name: 'Strings Section', iconClass: 'fa-solid fa-violin', color: '#ff4444' },
+    { id: 'brass', name: 'Trumpet/Brass', iconClass: 'fa-solid fa-trumpet', color: '#ffd700' },
+    { id: 'synth', name: 'Synth Lead', color: '#00f2ff' },
+    { id: 'pad', name: 'Atmosphere/Pad', iconClass: 'fa-solid fa-cloud', color: '#1e90ff' },
+    { id: 'guitar', name: 'Acoustic Guitar', iconClass: 'fa-solid fa-guitar', color: '#8b4513' },
+    { id: 'eguitar', name: 'Electric Guitar', iconClass: 'fa-solid fa-guitar-electric', color: '#ff0000' },
+    { id: 'bass', name: 'Bass Guitar', iconClass: 'fa-solid fa-guitar', color: '#0000ff' },
+    { id: 'flute', name: 'Flute', iconClass: 'fa-solid fa-wind', color: '#f0f8ff' },
+    { id: 'choir', name: 'Vocals/Choir', iconClass: 'fa-solid fa-users-viewfinder', color: '#fff' },
+    { id: 'drums', name: 'Drums/Perc', iconClass: 'fa-solid fa-drum', color: '#fff' },
+  ];
+
+  selectedLayerForIcon = signal<SynthLayer | null>(null);
+  assigningSF = signal<any | null>(null);
+  assigningLayerForSF = signal<SynthLayer | null>(null);
+  keyboardVisible = signal(false); // INICIA OCULTO COMO PEDIDO
+
+  availableSF2s = computed(() => this.audioService.libraryFiles());
+
+  openAssignModal(sf: any) {
+    this.assigningSF.set(sf);
+  }
+
+  openAssignModalForLayer(layer: SynthLayer) {
+    this.assigningLayerForSF.set(layer);
+  }
+
+  async onSFSelectChange(layer: SynthLayer, event: any) {
+    const fileName = event.target.value;
+    if (!fileName) return;
+
+    const sf = this.availableSF2s().find(f => f.name === fileName);
+    if (sf) {
+      // Passar o canal da camada (Camada 1 = Canal 0, Camada 2 = Canal 1...)
+      const layerIndex = this.audioService.layers().findIndex(l => l.id === layer.id);
+      const channel = layerIndex !== -1 ? layerIndex : 0;
+      
+      // O AudioService já cuida de setProgram e ControlChange internamente no loadSoundFont
+      await this.audioService.loadSoundFont(sf.data, sf.name, channel);
+
+      this.audioService.updateLayer(layer.id, { 
+        soundFontName: sf.name,
+        name: sf.name.replace('.sf2', '').replace('.SF2', '')
+      });
+    }
+  }
+
+  onLayerNameChange(layer: SynthLayer, event: any) {
+    this.audioService.updateLayer(layer.id, { name: event.target.value });
+  }
+
+  onLayerVol(layer: SynthLayer, event: any) {
+    this.audioService.updateLayer(layer.id, { volume: parseFloat(event.target.value) });
+  }
+
+  testAudio() {
+    this.audioService.testAudio();
+  }
+
+  async deleteFromLibrary(name: string) {
+    if (confirm(`Deseja remover ${name} da biblioteca?`)) {
+       await this.audioService.deleteFileFromDB(name);
+    }
+  }
+
+  getLayerColor(channel: number): string {
+    const colors = ['#8a2be2', '#32cd32', '#1e90ff', '#ff8c00', '#ff4444', '#00f2ff'];
+    return colors[channel % colors.length];
+  }
+
+  getInstrumentIconClass(layer: SynthLayer): string {
+    if (layer.icon) {
+      const opt = this.instrumentOptions.find(o => o.id === layer.icon);
+      if (opt) return opt.iconClass || 'fa-solid fa-music';
+    }
+    
+    const prog = layer.program;
+    if (prog <= 8) return 'fa-solid fa-piano';
+    if (prog >= 40 && prog <= 47) return 'fa-solid fa-violin';
+    if (prog >= 80 && prog <= 100) return 'fa-solid fa-wave-square';
+    return 'fa-solid fa-music';
+  }
+
+  getInstrumentColor(layer: SynthLayer): string {
+    if (layer.icon) {
+      const opt = this.instrumentOptions.find(o => o.id === layer.icon);
+      if (opt) return opt.color;
+    }
+    return 'var(--primary)';
+  }
+
+  setLayerIcon(layerId: string, iconId: string) {
+    this.audioService.updateLayer(layerId, { icon: iconId });
+    this.selectedLayerForIcon.set(null);
+  }
+
+  isSolo(layer: SynthLayer): boolean {
+    return false;
+  }
 
   constructor() {
-    // Optimized MIDI handling via direct callback
     this.midiService.onMessage((msg) => {
-      // Auto-resume audio context if it was in sleep mode (common in browsers)
       if (this.audioService.isInitialized()) {
         (this.audioService as any).audioContext?.resume();
       }
@@ -1047,19 +1702,12 @@ export class AppComponent {
         this.audioService.noteOn(msg.note, msg.velocity);
       } else if (msg.type === 0x80 || (msg.type === 0x90 && msg.velocity === 0)) {
         this.audioService.noteOff(msg.note);
-      } else if (msg.type === 0xB0) { // Control Change
-        if (msg.note === 64) { // Sustain
+      } else if (msg.type === 'cc' && msg.note === 64) {
            const isOn = msg.velocity >= 64;
            this.sustain.set(isOn);
            this.audioService.setSustain(isOn);
-        } else {
-           this.audioService.handleMidiCC(msg.note, msg.velocity);
-        }
       }
     });
-
-    // Auto-init audio on first interaction if needed, 
-    // but better to leave to the Start button.
   }
 
   async onFileSelected(event: any, layer?: SynthLayer) {
@@ -1087,49 +1735,8 @@ export class AppComponent {
     this.audioService.setMasterParam(param, val);
   }
 
-  onReverbTimeChange(event: any) {
-    const val = parseFloat(event.target.value);
-    this.audioService.setReverbTime(val);
-  }
-
-  onDelayChange(event: any) {
-    const val = parseFloat(event.target.value);
-    this.audioService.setDelay(val);
-  }
-
   toggleView() {
-    this.audioService.viewMode.update(v => v === 'cards' ? 'mixer' : 'cards');
-  }
-
-  // Layer Handlers
-  onPatchChange(layer: SynthLayer, event: any) {
-    const [prog, msb, lsb] = event.target.value.split(',').map(Number);
-    this.audioService.updateLayer(layer.id, { program: prog, bankMSB: msb, bankLSB: lsb });
-  }
-
-  onLayerVol(layer: SynthLayer, event: any) {
-    this.audioService.updateLayer(layer.id, { volume: parseFloat(event.target.value) });
-  }
-
-  onLayerRev(layer: SynthLayer, event: any) {
-    this.audioService.updateLayer(layer.id, { reverb: parseFloat(event.target.value) });
-  }
-
-  onLayerPan(layer: SynthLayer, event: any) {
-    this.audioService.updateLayer(layer.id, { pan: parseFloat(event.target.value) });
-  }
-
-  onLayerTranspose(layer: SynthLayer, event: any) {
-    this.audioService.updateLayer(layer.id, { transpose: parseInt(event.target.value) });
-  }
-
-  isLearning(layerId: string, param: string) {
-    const l = this.audioService.isLearning();
-    return l?.layerId === layerId && l?.param === param;
-  }
-
-  startLearning(layerId: string, param: string) {
-    this.audioService.isLearning.set({ layerId, param });
+    this.audioService.viewMode.update(v => v === 'home' ? 'mixer' : 'home');
   }
 
   isBlack(n: number) {
@@ -1137,24 +1744,35 @@ export class AppComponent {
     return keys.includes(n % 12);
   }
 
-  // Piano Interactive logic
   private isMouseDown = false;
 
   onKeyStart(note: number, event: MouseEvent) {
     event.preventDefault();
+    this.ensureAudio();
     this.isMouseDown = true;
     this.audioService.noteOn(note, 100);
   }
 
   onKeyEnd(note: number, event: MouseEvent) {
-    if (!this.isMouseDown) return;
-    this.isMouseDown = false;
     this.audioService.noteOff(note);
   }
 
-  onKeyMove(note: number, event: MouseEvent) {
-    if (this.isMouseDown) {
-      this.audioService.noteOn(note, 100);
+  onKeyTouchStart(note: number, event: TouchEvent) {
+    event.preventDefault();
+    this.ensureAudio();
+    this.audioService.noteOn(note, 100);
+  }
+
+  onKeyTouchEnd(note: number, event: TouchEvent) {
+    event.preventDefault();
+    this.audioService.noteOff(note);
+  }
+
+  private ensureAudio() {
+    if (!this.audioService.isInitialized()) {
+      this.audioService.initialize();
     }
+    // Resume AudioContext suspended by browser autoplay policy
+    (this.audioService as any).audioContext?.resume().catch(() => {});
   }
 }
